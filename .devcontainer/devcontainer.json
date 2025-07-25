@@ -1,0 +1,18 @@
+{
+  "name": "Symfony DevContainer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "devuser",
+  "workspaceFolder": "/workspaces/symfony",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "xdebug.php-debug",
+        "zobo.php-intellisense"
+      ]
+    }
+  },
+  "postCreateCommand": "composer install"
+}
