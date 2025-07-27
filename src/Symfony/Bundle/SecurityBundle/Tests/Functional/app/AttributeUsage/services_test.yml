@@ -1,0 +1,5 @@
+services:
+    Symfony\Bundle\SecurityBundle\Tests\Functional\Bundle\AttributeUsageBundle\Controller\DummyController:
+        public: true
+        autowire: true
+        autoconfigure: true

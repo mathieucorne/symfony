@@ -1,0 +1,3 @@
+admin_dashboard:
+    path: /admin
+    controller: Symfony\Bundle\SecurityBundle\Tests\Functional\Bundle\AttributeUsageBundle\Controller\DummyController::admin

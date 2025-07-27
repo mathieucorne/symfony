@@ -21,7 +21,7 @@ use Symfony\Component\ExpressionLanguage\Expression;
  * @author Ryan Weaver <ryan@knpuniversity.com>
  */
 #[\Attribute(\Attribute::IS_REPEATABLE | \Attribute::TARGET_CLASS | \Attribute::TARGET_METHOD | \Attribute::TARGET_FUNCTION)]
-final class IsGranted
+class IsGranted
 {
     /**
      * @param string|Expression            $attribute     The attribute that will be checked against a given authentication token and optional subject
