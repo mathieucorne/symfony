@@ -27,11 +27,11 @@ class DiscriminatorMapTest extends TestCase
             'bar' => 'BarClass',
         ]);
 
-        $this->assertEquals('type', $attribute->getTypeProperty());
+        $this->assertEquals('type', $attribute->typeProperty);
         $this->assertEquals([
             'foo' => 'FooClass',
             'bar' => 'BarClass',
-        ], $attribute->getMapping());
+        ], $attribute->mapping);
     }
 
     public function testExceptionWithEmptyTypeProperty()
@@ -40,9 +40,16 @@ class DiscriminatorMapTest extends TestCase
         new DiscriminatorMap(typeProperty: '', mapping: ['foo' => 'FooClass']);
     }
 
-    public function testExceptionWitEmptyMappingProperty()
+    public function testExceptionWithEmptyMappingProperty()
     {
         $this->expectException(InvalidArgumentException::class);
         new DiscriminatorMap(typeProperty: 'type', mapping: []);
+    }
+
+    public function testExceptionWithMissingDefaultTypeInMapping()
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(\sprintf('Default type "bar" given to "%s" must be present in "mapping" types.', DiscriminatorMap::class));
+        new DiscriminatorMap(typeProperty: 'type', mapping: ['foo' => 'FooClass'], defaultType: 'bar');
     }
 }

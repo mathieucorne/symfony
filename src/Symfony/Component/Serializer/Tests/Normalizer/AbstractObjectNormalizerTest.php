@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\Serializer\Tests\Normalizer;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\PropertyInfo\Extractor\PhpDocExtractor;
 use Symfony\Component\PropertyInfo\Extractor\PhpStanExtractor;
@@ -528,9 +529,7 @@ class AbstractObjectNormalizerTest extends TestCase
         return $denormalizer;
     }
 
-    /**
-     * @dataProvider provideInvalidDiscriminatorTypes
-     */
+    #[DataProvider('provideInvalidDiscriminatorTypes')]
     public function testDenormalizeWithDiscriminatorMapHandlesInvalidTypeValue(mixed $typeValue, bool $shouldFail)
     {
         if ($shouldFail) {
@@ -574,9 +573,9 @@ class AbstractObjectNormalizerTest extends TestCase
     }
 
     /**
-     * @return iterable<array{0: mixed, 1: bool}>
+     * @return array<array{0: mixed, 1: bool}>
      */
-    public static function provideInvalidDiscriminatorTypes(): array
+    public static function provideInvalidDiscriminatorTypes(): iterable
     {
         $toStringObject = new class {
             public function __toString()
@@ -585,14 +584,12 @@ class AbstractObjectNormalizerTest extends TestCase
             }
         };
 
-        return [
-            [[], true],
-            [new \stdClass(), true],
-            [123, true],
-            [false, true],
-            ['first', false],
-            [$toStringObject, false],
-        ];
+        yield [[], true];
+        yield [new \stdClass(), true];
+        yield [123, true];
+        yield [false, true];
+        yield ['first', false];
+        yield [$toStringObject, false];
     }
 
     public function testDenormalizeWithDiscriminatorMapUsesCorrectClassname()
@@ -626,6 +623,41 @@ class AbstractObjectNormalizerTest extends TestCase
         $serializer = new Serializer([$normalizer]);
         $normalizer->setSerializer($serializer);
         $normalizedData = $normalizer->denormalize(['foo' => 'foo', 'baz' => 'baz', 'quux' => ['value' => 'quux'], 'type' => 'second'], AbstractDummy::class);
+
+        $this->assertInstanceOf(DummySecondChildQuux::class, $normalizedData->quux);
+    }
+
+    public function testDenormalizeWithDiscriminatorMapUsesCorrectClassnameWithDefaultType()
+    {
+        $factory = new ClassMetadataFactory(new AttributeLoader());
+
+        $loaderMock = new class implements ClassMetadataFactoryInterface {
+            public function getMetadataFor($value): ClassMetadataInterface
+            {
+                if (AbstractDummy::class === $value) {
+                    return new ClassMetadata(
+                        AbstractDummy::class,
+                        new ClassDiscriminatorMapping('type', [
+                            'first' => AbstractDummyFirstChild::class,
+                            'second' => AbstractDummySecondChild::class,
+                        ], 'second')
+                    );
+                }
+
+                throw new InvalidArgumentException(\sprintf('"%s" is not handled.', $value));
+            }
+
+            public function hasMetadataFor($value): bool
+            {
+                return AbstractDummy::class === $value;
+            }
+        };
+
+        $discriminatorResolver = new ClassDiscriminatorFromClassMetadata($loaderMock);
+        $normalizer = new AbstractObjectNormalizerDummy($factory, null, new PhpDocExtractor(), $discriminatorResolver);
+        $serializer = new Serializer([$normalizer]);
+        $normalizer->setSerializer($serializer);
+        $normalizedData = $normalizer->denormalize(['foo' => 'foo', 'baz' => 'baz', 'quux' => ['value' => 'quux']], AbstractDummy::class);
 
         $this->assertInstanceOf(DummySecondChildQuux::class, $normalizedData->quux);
     }
@@ -1250,9 +1282,7 @@ class AbstractObjectNormalizerTest extends TestCase
         $this->assertEquals($expected, $normalizer->denormalize(['foo' => 'bar'], MixedPropertyDummy::class));
     }
 
-    /**
-     * @dataProvider provideBooleanTypesData
-     */
+    #[DataProvider('provideBooleanTypesData')]
     public function testDenormalizeBooleanTypesWithNotMatchingData(array $data, string $type)
     {
         $normalizer = new AbstractObjectNormalizerWithMetadataAndPropertyTypeExtractors();
@@ -1289,9 +1319,7 @@ class AbstractObjectNormalizerTest extends TestCase
         $this->assertEquals($example, $deserialized);
     }
 
-    /**
-     * @dataProvider provideDenormalizeWithFilterBoolData
-     */
+    #[DataProvider('provideDenormalizeWithFilterBoolData')]
     public function testDenormalizeBooleanTypeWithFilterBool(array $data, ?bool $expectedFoo)
     {
         $normalizer = new AbstractObjectNormalizerWithMetadataAndPropertyTypeExtractors();
@@ -1427,7 +1455,7 @@ class AbstractObjectNormalizerDummy extends AbstractObjectNormalizer
 
     protected function isAllowedAttribute($classOrObject, string $attribute, ?string $format = null, array $context = []): bool
     {
-        return \in_array($attribute, ['foo', 'baz', 'quux', 'value']);
+        return \in_array($attribute, ['foo', 'baz', 'quux', 'value'], true);
     }
 
     public function instantiateObject(array &$data, string $class, array &$context, \ReflectionClass $reflectionClass, $allowedAttributes, ?string $format = null): object
@@ -1819,7 +1847,7 @@ class ArrayDenormalizerDummy implements DenormalizerInterface, SerializerAwareIn
 
 class NotSerializable
 {
-    public function __sleep(): array
+    public function __serialize(): array
     {
         throw new \Error('not serializable');
     }

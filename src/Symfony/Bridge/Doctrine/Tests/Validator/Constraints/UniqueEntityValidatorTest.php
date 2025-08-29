@@ -17,6 +17,9 @@ use Doctrine\ORM\EntityRepository;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Persistence\ManagerRegistry;
 use Doctrine\Persistence\ObjectManager;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Bridge\Doctrine\Tests\DoctrineTestHelper;
 use Symfony\Bridge\Doctrine\Tests\Fixtures\AssociatedEntityDto;
@@ -125,11 +128,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     /**
      * This is a functional test as there is a large integration necessary to get the validator working.
-     *
-     * @dataProvider provideUniquenessConstraints
      */
-    public function testValidateUniqueness(UniqueEntity $constraint)
+    public function testValidateUniqueness()
     {
+        $constraint = new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo');
+
         $entity1 = new SingleIntIdEntity(1, 'Foo');
         $entity2 = new SingleIntIdEntity(2, 'Foo');
 
@@ -177,6 +180,27 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         // this will load a proxy object
         $entity = $this->em->getReference(SingleIntIdWithPrivateNameEntity::class, 1);
 
+        $this->validator->validate($entity, new UniqueEntity(
+            fields: ['name'],
+            em: self::EM_NAME,
+        ));
+
+        $this->assertNoViolation();
+    }
+
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
+    public function testValidateEntityWithPrivatePropertyAndProxyObjectDoctrineStyle()
+    {
+        $entity = new SingleIntIdWithPrivateNameEntity(1, 'Foo');
+        $this->em->persist($entity);
+        $this->em->flush();
+
+        $this->em->clear();
+
+        // this will load a proxy object
+        $entity = $this->em->getReference(SingleIntIdWithPrivateNameEntity::class, 1);
+
         $this->validator->validate($entity, new UniqueEntity([
             'fields' => ['name'],
             'em' => self::EM_NAME,
@@ -185,10 +209,7 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->assertNoViolation();
     }
 
-    /**
-     * @dataProvider provideConstraintsWithCustomErrorPath
-     */
-    public function testValidateCustomErrorPath(UniqueEntity $constraint)
+    public function testValidateCustomErrorPath()
     {
         $entity1 = new SingleIntIdEntity(1, 'Foo');
         $entity2 = new SingleIntIdEntity(2, 'Foo');
@@ -196,7 +217,7 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->em->persist($entity1);
         $this->em->flush();
 
-        $this->validator->validate($entity2, $constraint);
+        $this->validator->validate($entity2, new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo', errorPath: 'bar'));
 
         $this->buildViolation('myMessage')
             ->atPath('property.path.bar')
@@ -207,22 +228,33 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
-    public static function provideConstraintsWithCustomErrorPath(): iterable
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
+    public function testValidateCustomErrorPathDoctrineStyle()
     {
-        yield 'Doctrine style' => [new UniqueEntity([
+        $entity1 = new SingleIntIdEntity(1, 'Foo');
+        $entity2 = new SingleIntIdEntity(2, 'Foo');
+
+        $this->em->persist($entity1);
+        $this->em->flush();
+
+        $this->validator->validate($entity2, new UniqueEntity([
             'message' => 'myMessage',
             'fields' => ['name'],
-            'em' => self::EM_NAME,
+            'em' => 'foo',
             'errorPath' => 'bar',
-        ])];
+        ]));
 
-        yield 'Named arguments' => [new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo', errorPath: 'bar')];
+        $this->buildViolation('myMessage')
+            ->atPath('property.path.bar')
+            ->setParameter('{{ value }}', '"Foo"')
+            ->setInvalidValue($entity2)
+            ->setCause([$entity1])
+            ->setCode(UniqueEntity::NOT_UNIQUE_ERROR)
+            ->assertRaised();
     }
 
-    /**
-     * @dataProvider provideUniquenessConstraints
-     */
-    public function testValidateUniquenessWithNull(UniqueEntity $constraint)
+    public function testValidateUniquenessWithNull()
     {
         $entity1 = new SingleIntIdEntity(1, null);
         $entity2 = new SingleIntIdEntity(2, null);
@@ -231,15 +263,13 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->em->persist($entity2);
         $this->em->flush();
 
-        $this->validator->validate($entity1, $constraint);
+        $this->validator->validate($entity1, new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo'));
 
         $this->assertNoViolation();
     }
 
-    /**
-     * @dataProvider provideConstraintsWithIgnoreNullDisabled
-     * @dataProvider provideConstraintsWithIgnoreNullEnabledOnFirstField
-     */
+    #[DataProvider('provideConstraintsWithIgnoreNullDisabled')]
+    #[DataProvider('provideConstraintsWithIgnoreNullEnabledOnFirstField')]
     public function testValidateUniquenessWithIgnoreNullDisableOnSecondField(UniqueEntity $constraint)
     {
         $entity1 = new DoubleNameEntity(1, 'Foo', null);
@@ -269,19 +299,10 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public static function provideConstraintsWithIgnoreNullDisabled(): iterable
     {
-        yield 'Doctrine style' => [new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name', 'name2'],
-            'em' => self::EM_NAME,
-            'ignoreNull' => false,
-        ])];
-
         yield 'Named arguments' => [new UniqueEntity(message: 'myMessage', fields: ['name', 'name2'], em: 'foo', ignoreNull: false)];
     }
 
-    /**
-     * @dataProvider provideConstraintsWithIgnoreNullEnabled
-     */
+    #[DataProvider('provideConstraintsWithIgnoreNullEnabled')]
     public function testAllConfiguredFieldsAreCheckedOfBeingMappedByDoctrineWithIgnoreNullEnabled(UniqueEntity $constraint)
     {
         $entity1 = new SingleIntIdEntity(1, null);
@@ -290,10 +311,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate($entity1, $constraint);
     }
 
-    /**
-     * @dataProvider provideConstraintsWithIgnoreNullEnabled
-     * @dataProvider provideConstraintsWithIgnoreNullEnabledOnFirstField
-     */
+    #[DataProvider('provideConstraintsWithIgnoreNullEnabled')]
+    #[DataProvider('provideConstraintsWithIgnoreNullEnabledOnFirstField')]
     public function testNoValidationIfFirstFieldIsNullAndNullValuesAreIgnored(UniqueEntity $constraint)
     {
         $entity1 = new DoubleNullableNameEntity(1, null, 'Foo');
@@ -317,36 +336,22 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public static function provideConstraintsWithIgnoreNullEnabled(): iterable
     {
-        yield 'Doctrine style' => [new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name', 'name2'],
-            'em' => self::EM_NAME,
-            'ignoreNull' => true,
-        ])];
-
         yield 'Named arguments' => [new UniqueEntity(message: 'myMessage', fields: ['name', 'name2'], em: 'foo', ignoreNull: true)];
     }
 
     public static function provideConstraintsWithIgnoreNullEnabledOnFirstField(): iterable
     {
-        yield 'Doctrine style (name field)' => [new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name', 'name2'],
-            'em' => self::EM_NAME,
-            'ignoreNull' => 'name',
-        ])];
-
         yield 'Named arguments (name field)' => [new UniqueEntity(message: 'myMessage', fields: ['name', 'name2'], em: 'foo', ignoreNull: 'name')];
     }
 
     public function testValidateUniquenessWithValidCustomErrorPath()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name', 'name2'],
-            'em' => self::EM_NAME,
-            'errorPath' => 'name2',
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name', 'name2'],
+            em: self::EM_NAME,
+            errorPath: 'name2',
+        );
 
         $entity1 = new DoubleNameEntity(1, 'Foo', 'Bar');
         $entity2 = new DoubleNameEntity(2, 'Foo', 'Bar');
@@ -373,10 +378,7 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
-    /**
-     * @dataProvider provideConstraintsWithCustomRepositoryMethod
-     */
-    public function testValidateUniquenessUsingCustomRepositoryMethod(UniqueEntity $constraint)
+    public function testValidateUniquenessUsingCustomRepositoryMethod()
     {
         $this->em->getRepository(SingleIntIdEntity::class)->result = [];
         $this->validator = $this->createValidator();
@@ -384,15 +386,12 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
         $entity1 = new SingleIntIdEntity(1, 'foo');
 
-        $this->validator->validate($entity1, $constraint);
+        $this->validator->validate($entity1, new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo', repositoryMethod: 'findByCustom'));
 
         $this->assertNoViolation();
     }
 
-    /**
-     * @dataProvider provideConstraintsWithCustomRepositoryMethod
-     */
-    public function testValidateUniquenessWithUnrewoundArray(UniqueEntity $constraint)
+    public function testValidateUniquenessWithUnrewoundArray()
     {
         $entity = new SingleIntIdEntity(1, 'foo');
 
@@ -405,34 +404,20 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator = $this->createValidator();
         $this->validator->initialize($this->context);
 
-        $this->validator->validate($entity, $constraint);
+        $this->validator->validate($entity, new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo', repositoryMethod: 'findByCustom'));
 
         $this->assertNoViolation();
     }
 
-    public static function provideConstraintsWithCustomRepositoryMethod(): iterable
-    {
-        yield 'Doctrine style' => [new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-            'repositoryMethod' => 'findByCustom',
-        ])];
-
-        yield 'Named arguments' => [new UniqueEntity(message: 'myMessage', fields: ['name'], em: 'foo', repositoryMethod: 'findByCustom')];
-    }
-
-    /**
-     * @dataProvider resultTypesProvider
-     */
+    #[DataProvider('resultTypesProvider')]
     public function testValidateResultTypes($entity1, $result)
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-            'repositoryMethod' => 'findByCustom',
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+            repositoryMethod: 'findByCustom',
+        );
 
         $this->em->getRepository(SingleIntIdEntity::class)->result = $result;
         $this->validator = $this->createValidator();
@@ -456,11 +441,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testAssociatedEntity()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['single'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['single'],
+            em: self::EM_NAME,
+        );
 
         $entity1 = new SingleIntIdEntity(1, 'foo');
         $associated = new AssociationEntity();
@@ -492,11 +477,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValidateUniquenessNotToStringEntityWithAssociatedEntity()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['single'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['single'],
+            em: self::EM_NAME,
+        );
 
         $entity1 = new SingleIntIdNoToStringEntity(1, 'foo');
         $associated = new AssociationEntity2();
@@ -530,12 +515,12 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testAssociatedEntityWithNull()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['single'],
-            'em' => self::EM_NAME,
-            'ignoreNull' => false,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['single'],
+            em: self::EM_NAME,
+            ignoreNull: false,
+        );
 
         $associated = new AssociationEntity();
         $associated->single = null;
@@ -584,12 +569,12 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValidateUniquenessWithArrayValue()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['phoneNumbers'],
-            'em' => self::EM_NAME,
-            'repositoryMethod' => 'findByCustom',
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['phoneNumbers'],
+            em: self::EM_NAME,
+            repositoryMethod: 'findByCustom',
+        );
 
         $entity1 = new SingleIntIdEntity(1, 'foo');
         $entity1->phoneNumbers[] = 123;
@@ -617,11 +602,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testDedicatedEntityManagerNullObject()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+        );
 
         $this->em = null;
         $this->registry = $this->createRegistryMock($this->em);
@@ -638,11 +623,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testEntityManagerNullObject()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
             // no "em" option set
-        ]);
+        );
 
         $this->validator = $this->createValidator();
         $this->validator->initialize($this->context);
@@ -660,11 +645,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator = $this->createValidator();
         $this->validator->initialize($this->context);
 
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+        );
 
         $entity = new SingleIntIdEntity(1, null);
 
@@ -677,12 +662,12 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValidateInheritanceUniqueness()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-            'entityClass' => Person::class,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+            entityClass: Person::class,
+        );
 
         $entity1 = new Person(1, 'Foo');
         $entity2 = new Employee(2, 'Foo');
@@ -711,12 +696,12 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testInvalidateRepositoryForInheritance()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-            'entityClass' => SingleStringIdEntity::class,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+            entityClass: SingleStringIdEntity::class,
+        );
 
         $entity = new Person(1, 'Foo');
 
@@ -728,11 +713,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValidateUniquenessWithCompositeObjectNoToStringIdEntity()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['objectOne', 'objectTwo'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['objectOne', 'objectTwo'],
+            em: self::EM_NAME,
+        );
 
         $objectOne = new SingleIntIdNoToStringEntity(1, 'foo');
         $objectTwo = new SingleIntIdNoToStringEntity(2, 'bar');
@@ -763,11 +748,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValidateUniquenessWithCustomDoctrineTypeValue()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+        );
 
         $existingEntity = new SingleIntIdStringWrapperNameEntity(1, new StringWrapper('foo'));
 
@@ -794,11 +779,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
      */
     public function testValidateUniquenessCause()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+        );
 
         $entity1 = new SingleIntIdEntity(1, 'Foo');
         $entity2 = new SingleIntIdEntity(2, 'Foo');
@@ -825,17 +810,15 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
-    /**
-     * @dataProvider resultWithEmptyIterator
-     */
+    #[DataProvider('resultWithEmptyIterator')]
     public function testValidateUniquenessWithEmptyIterator($entity, $result)
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-            'repositoryMethod' => 'findByCustom',
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+            repositoryMethod: 'findByCustom',
+        );
 
         $this->em->getRepository(SingleIntIdEntity::class)->result = $result;
         $this->validator = $this->createValidator();
@@ -848,11 +831,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValueMustBeObject()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+        );
 
         $this->expectException(UnexpectedValueException::class);
 
@@ -861,11 +844,11 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
 
     public function testValueCanBeNull()
     {
-        $constraint = new UniqueEntity([
-            'message' => 'myMessage',
-            'fields' => ['name'],
-            'em' => self::EM_NAME,
-        ]);
+        $constraint = new UniqueEntity(
+            message: 'myMessage',
+            fields: ['name'],
+            em: self::EM_NAME,
+        );
 
         $this->validator->validate(null, $constraint);
 
@@ -962,6 +945,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testValidateDTOUniquenessDoctrineStyle()
     {
         $constraint = new UniqueEntity([
@@ -1022,6 +1007,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testValidateMappingOfFieldNamesDoctrineStyle()
     {
         $constraint = new UniqueEntity([
@@ -1063,6 +1050,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate($dto, $constraint);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testInvalidateDTOFieldNameDoctrineStyle()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -1093,6 +1082,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate($dto, $constraint);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testInvalidateEntityFieldNameDoctrineStyle()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -1138,6 +1129,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testValidateDTOUniquenessWhenUpdatingEntityDoctrineStyle()
     {
         $constraint = new UniqueEntity([
@@ -1190,6 +1183,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->assertNoViolation();
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testValidateDTOUniquenessWhenUpdatingEntityWithTheSameValueDoctrineStyle()
     {
         $constraint = new UniqueEntity([
@@ -1241,6 +1236,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->assertNoViolation();
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testValidateIdentifierMappingOfFieldNamesDoctrineStyle()
     {
         $constraint = new UniqueEntity([
@@ -1298,6 +1295,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate($dto, $constraint);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testInvalidateMissingIdentifierFieldNameDoctrineStyle()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -1345,6 +1344,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate($dto, $constraint);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testUninitializedValueThrowExceptionDoctrineStyle()
     {
         $this->expectExceptionMessage('Typed property Symfony\Bridge\Doctrine\Tests\Fixtures\Dto::$foo must not be accessed before initialization');
@@ -1385,6 +1386,8 @@ class UniqueEntityValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate($dto, $constraint);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testEntityManagerNullObjectWhenDTODoctrineStyle()
     {
         $this->expectException(ConstraintDefinitionException::class);

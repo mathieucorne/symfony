@@ -11,14 +11,17 @@
 
 namespace Symfony\Component\HttpFoundation\Tests;
 
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Clock\MockClock;
+use Symfony\Component\HttpFoundation\Exception\ExpiredSignedUriException;
 use Symfony\Component\HttpFoundation\Exception\LogicException;
+use Symfony\Component\HttpFoundation\Exception\UnsignedUriException;
+use Symfony\Component\HttpFoundation\Exception\UnverifiedSignedUriException;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\UriSigner;
 
-/**
- * @group time-sensitive
- */
+#[Group('time-sensitive')]
 class UriSignerTest extends TestCase
 {
     public function testSign()
@@ -70,13 +73,13 @@ class UriSignerTest extends TestCase
             $signer = new UriSigner('foobar');
 
             $this->assertSame(
-                'http://example.com/foo?_hash=rIOcC%2FF3DoEGo%2FvnESjSp7uU9zA9S%2F%2BOLhxgMexoPUM%3D&baz=bay&foo=bar',
+                'http://example.com/foo?_hash=rIOcC_F3DoEGo_vnESjSp7uU9zA9S_-OLhxgMexoPUM&baz=bay&foo=bar',
                 $signer->sign('http://example.com/foo?foo=bar&baz=bay')
             );
             $this->assertTrue($signer->check($signer->sign('http://example.com/foo?foo=bar&baz=bay')));
 
             $this->assertSame(
-                'http://example.com/foo?_expiration=2145916800&_hash=xLhnPMzV3KqqHaaUffBUJvtRDAZ4%2FZ9Y8Sw%2BgmS%2B82Q%3D&baz=bay&foo=bar',
+                'http://example.com/foo?_expiration=2145916800&_hash=xLhnPMzV3KqqHaaUffBUJvtRDAZ4_Z9Y8Sw-gmS-82Q&baz=bay&foo=bar',
                 $signer->sign('http://example.com/foo?foo=bar&baz=bay', new \DateTimeImmutable('2038-01-01 00:00:00', new \DateTimeZone('UTC')))
             );
             $this->assertTrue($signer->check($signer->sign('http://example.com/foo?foo=bar&baz=bay', new \DateTimeImmutable('2099-01-01 00:00:00'))));
@@ -103,13 +106,13 @@ class UriSignerTest extends TestCase
         $signer = new UriSigner('foobar', 'qux', 'abc');
 
         $this->assertSame(
-            'http://example.com/foo?baz=bay&foo=bar&qux=rIOcC%2FF3DoEGo%2FvnESjSp7uU9zA9S%2F%2BOLhxgMexoPUM%3D',
+            'http://example.com/foo?baz=bay&foo=bar&qux=rIOcC_F3DoEGo_vnESjSp7uU9zA9S_-OLhxgMexoPUM',
             $signer->sign('http://example.com/foo?foo=bar&baz=bay')
         );
         $this->assertTrue($signer->check($signer->sign('http://example.com/foo?foo=bar&baz=bay')));
 
         $this->assertSame(
-            'http://example.com/foo?abc=2145916800&baz=bay&foo=bar&qux=kE4rK2MzeiwrYAKy%2B%2FGKvKA6bnzqCbACBdpC3yGnPVU%3D',
+            'http://example.com/foo?abc=2145916800&baz=bay&foo=bar&qux=kE4rK2MzeiwrYAKy-_GKvKA6bnzqCbACBdpC3yGnPVU',
             $signer->sign('http://example.com/foo?foo=bar&baz=bay', new \DateTimeImmutable('2038-01-01 00:00:00', new \DateTimeZone('UTC')))
         );
         $this->assertTrue($signer->check($signer->sign('http://example.com/foo?foo=bar&baz=bay', new \DateTimeImmutable('2099-01-01 00:00:00'))));
@@ -120,14 +123,14 @@ class UriSignerTest extends TestCase
         $signer = new UriSigner('foobar');
 
         $this->assertSame(
-            'http://example.com/foo?_hash=EhpAUyEobiM3QTrKxoLOtQq5IsWyWedoXDPqIjzNj5o%3D&bar=foo&foo=bar#foobar',
+            'http://example.com/foo?_hash=EhpAUyEobiM3QTrKxoLOtQq5IsWyWedoXDPqIjzNj5o&bar=foo&foo=bar#foobar',
             $signer->sign('http://example.com/foo?bar=foo&foo=bar#foobar')
         );
 
         $this->assertTrue($signer->check($signer->sign('http://example.com/foo?bar=foo&foo=bar#foobar')));
 
         $this->assertSame(
-            'http://example.com/foo?_expiration=2145916800&_hash=jTdrIE9MJSorNpQmkX6tmOtocxXtHDzIJawcAW4IFYo%3D&bar=foo&foo=bar#foobar',
+            'http://example.com/foo?_expiration=2145916800&_hash=jTdrIE9MJSorNpQmkX6tmOtocxXtHDzIJawcAW4IFYo&bar=foo&foo=bar#foobar',
             $signer->sign('http://example.com/foo?bar=foo&foo=bar#foobar', new \DateTimeImmutable('2038-01-01 00:00:00', new \DateTimeZone('UTC')))
         );
 
@@ -197,5 +200,64 @@ class UriSignerTest extends TestCase
         $this->assertFalse($signer->check($relativeUriFromNow1));
         $this->assertFalse($signer->check($relativeUriFromNow2));
         $this->assertFalse($signer->check($relativeUriFromNow3));
+    }
+
+    public function testCheckWithUriExpirationWithClock()
+    {
+        $clock = new MockClock();
+        $signer = new UriSigner('foobar', clock: $clock);
+
+        $this->assertFalse($signer->check($signer->sign('http://example.com/foo', new \DateTimeImmutable('2000-01-01 00:00:00'))));
+        $this->assertFalse($signer->check($signer->sign('http://example.com/foo?foo=bar', new \DateTimeImmutable('2000-01-01 00:00:00'))));
+        $this->assertFalse($signer->check($signer->sign('http://example.com/foo?foo=bar&0=integer', new \DateTimeImmutable('2000-01-01 00:00:00'))));
+
+        $this->assertFalse($signer->check($signer->sign('http://example.com/foo', 1577836800))); // 2000-01-01
+        $this->assertFalse($signer->check($signer->sign('http://example.com/foo?foo=bar', 1577836800))); // 2000-01-01
+        $this->assertFalse($signer->check($signer->sign('http://example.com/foo?foo=bar&0=integer', 1577836800))); // 2000-01-01
+
+        $relativeUriFromNow1 = $signer->sign('http://example.com/foo', new \DateInterval('PT3S'));
+        $relativeUriFromNow2 = $signer->sign('http://example.com/foo?foo=bar', new \DateInterval('PT3S'));
+        $relativeUriFromNow3 = $signer->sign('http://example.com/foo?foo=bar&0=integer', new \DateInterval('PT3S'));
+        $clock->sleep(10);
+
+        $this->assertFalse($signer->check($relativeUriFromNow1));
+        $this->assertFalse($signer->check($relativeUriFromNow2));
+        $this->assertFalse($signer->check($relativeUriFromNow3));
+    }
+
+    public function testNonUrlSafeBase64()
+    {
+        $signer = new UriSigner('foobar');
+        $this->assertTrue($signer->check('http://example.com/foo?_hash=rIOcC%2FF3DoEGo%2FvnESjSp7uU9zA9S%2F%2BOLhxgMexoPUM%3D&baz=bay&foo=bar'));
+    }
+
+    public function testVerifyUnSignedUri()
+    {
+        $signer = new UriSigner('foobar');
+        $uri = 'http://example.com/foo';
+
+        $this->expectException(UnsignedUriException::class);
+
+        $signer->verify($uri);
+    }
+
+    public function testVerifyUnverifiedUri()
+    {
+        $signer = new UriSigner('foobar');
+        $uri = 'http://example.com/foo?_hash=invalid';
+
+        $this->expectException(UnverifiedSignedUriException::class);
+
+        $signer->verify($uri);
+    }
+
+    public function testVerifyExpiredUri()
+    {
+        $signer = new UriSigner('foobar');
+        $uri = $signer->sign('http://example.com/foo', 123456);
+
+        $this->expectException(ExpiredSignedUriException::class);
+
+        $signer->verify($uri);
     }
 }

@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\Validator\Tests\Constraints;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Validator\Constraints\Url;
 use Symfony\Component\Validator\Constraints\UrlValidator;
 use Symfony\Component\Validator\Exception\UnexpectedValueException;
@@ -50,9 +51,7 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
         $this->validator->validate(new \stdClass(), new Url(requireTld: true));
     }
 
-    /**
-     * @dataProvider getValidUrls
-     */
+    #[DataProvider('getValidUrls')]
     public function testValidUrls($url)
     {
         $this->validator->validate($url, new Url(requireTld: false));
@@ -60,9 +59,7 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
         $this->assertNoViolation();
     }
 
-    /**
-     * @dataProvider getValidUrls
-     */
+    #[DataProvider('getValidUrls')]
     public function testValidUrlsWithNewLine($url)
     {
         $this->validator->validate($url."\n", new Url(requireTld: false));
@@ -73,39 +70,33 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
-    /**
-     * @dataProvider getValidUrlsWithWhitespaces
-     */
+    #[DataProvider('getValidUrlsWithWhitespaces')]
     public function testValidUrlsWithWhitespaces($url)
     {
-        $this->validator->validate($url, new Url([
-            'normalizer' => 'trim',
-            'requireTld' => true,
-        ]));
+        $this->validator->validate($url, new Url(
+            normalizer: 'trim',
+            requireTld: true,
+        ));
 
         $this->assertNoViolation();
     }
 
-    /**
-     * @dataProvider getValidRelativeUrls
-     * @dataProvider getValidUrls
-     */
+    #[DataProvider('getValidRelativeUrls')]
+    #[DataProvider('getValidUrls')]
     public function testValidRelativeUrl($url)
     {
-        $constraint = new Url([
-            'relativeProtocol' => true,
-            'requireTld' => false,
-        ]);
+        $constraint = new Url(
+            relativeProtocol: true,
+            requireTld: false,
+        );
 
         $this->validator->validate($url, $constraint);
 
         $this->assertNoViolation();
     }
 
-    /**
-     * @dataProvider getValidRelativeUrls
-     * @dataProvider getValidUrls
-     */
+    #[DataProvider('getValidRelativeUrls')]
+    #[DataProvider('getValidUrls')]
     public function testValidRelativeUrlWithNewLine(string $url)
     {
         $constraint = new Url(relativeProtocol: true, requireTld: false);
@@ -226,15 +217,13 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
         ];
     }
 
-    /**
-     * @dataProvider getInvalidUrls
-     */
+    #[DataProvider('getInvalidUrls')]
     public function testInvalidUrls($url)
     {
-        $constraint = new Url([
-            'message' => 'myMessage',
-            'requireTld' => false,
-        ]);
+        $constraint = new Url(
+            message: 'myMessage',
+            requireTld: false,
+        );
 
         $this->validator->validate($url, $constraint);
 
@@ -244,17 +233,15 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
             ->assertRaised();
     }
 
-    /**
-     * @dataProvider getInvalidRelativeUrls
-     * @dataProvider getInvalidUrls
-     */
+    #[DataProvider('getInvalidRelativeUrls')]
+    #[DataProvider('getInvalidUrls')]
     public function testInvalidRelativeUrl($url)
     {
-        $constraint = new Url([
-            'message' => 'myMessage',
-            'relativeProtocol' => true,
-            'requireTld' => false,
-        ]);
+        $constraint = new Url(
+            message: 'myMessage',
+            relativeProtocol: true,
+            requireTld: false,
+        );
 
         $this->validator->validate($url, $constraint);
 
@@ -328,15 +315,13 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
         ];
     }
 
-    /**
-     * @dataProvider getValidCustomUrls
-     */
+    #[DataProvider('getValidCustomUrls')]
     public function testCustomProtocolIsValid($url, $requireTld)
     {
-        $constraint = new Url([
-            'protocols' => ['ftp', 'file', 'git'],
-            'requireTld' => $requireTld,
-        ]);
+        $constraint = new Url(
+            protocols: ['ftp', 'file', 'git'],
+            requireTld: $requireTld,
+        );
 
         $this->validator->validate($url, $constraint);
 
@@ -352,14 +337,10 @@ class UrlValidatorTest extends ConstraintValidatorTestCase
         ];
     }
 
-    /**
-     * @dataProvider getUrlsForRequiredTld
-     */
+    #[DataProvider('getUrlsForRequiredTld')]
     public function testRequiredTld(string $url, bool $requireTld, bool $isValid)
     {
-        $constraint = new Url([
-            'requireTld' => $requireTld,
-        ]);
+        $constraint = new Url(requireTld: $requireTld);
 
         $this->validator->validate($url, $constraint);
 

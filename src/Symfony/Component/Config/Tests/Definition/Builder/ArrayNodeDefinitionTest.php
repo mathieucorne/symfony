@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\Config\Tests\Definition\Builder;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\BooleanNodeDefinition;
@@ -39,9 +40,7 @@ class ArrayNodeDefinitionTest extends TestCase
         $this->assertContains($child, $this->getField($parent, 'children'));
     }
 
-    /**
-     * @dataProvider providePrototypeNodeSpecificCalls
-     */
+    #[DataProvider('providePrototypeNodeSpecificCalls')]
     public function testPrototypeNodeSpecificOption(string $method, array $args)
     {
         $this->expectException(InvalidDefinitionException::class);
@@ -97,9 +96,7 @@ class ArrayNodeDefinitionTest extends TestCase
         $this->assertEquals([[]], $tree->getDefaultValue());
     }
 
-    /**
-     * @dataProvider providePrototypedArrayNodeDefaults
-     */
+    #[DataProvider('providePrototypedArrayNodeDefaults')]
     public function testPrototypedArrayNodeDefault(int|array|string|null $args, bool $shouldThrowWhenUsingAttrAsKey, bool $shouldThrowWhenNotUsingAttrAsKey, array $defaults)
     {
         $node = new ArrayNodeDefinition('root');
@@ -170,9 +167,7 @@ class ArrayNodeDefinitionTest extends TestCase
         $this->assertEquals(['enabled' => false, 'foo' => 'bar'], $node->getNode()->getDefaultValue());
     }
 
-    /**
-     * @dataProvider getEnableableNodeFixtures
-     */
+    #[DataProvider('getEnableableNodeFixtures')]
     public function testTrueEnableEnabledNode(array $expected, array $config, string $message)
     {
         $processor = new Processor();
@@ -188,6 +183,16 @@ class ArrayNodeDefinitionTest extends TestCase
             $processor->process($node->getNode(), $config),
             $message
         );
+    }
+
+    public function testCanBeEnabledWithInfo()
+    {
+        $node = new ArrayNodeDefinition('root');
+        $node->canBeEnabled('Some info about disabling this node');
+
+        $child = $this->getField($node, 'children')['enabled'];
+
+        $this->assertEquals('Some info about disabling this node', $this->getField($child, 'attributes')['info']);
     }
 
     public function testCanBeDisabled()
@@ -206,6 +211,16 @@ class ArrayNodeDefinitionTest extends TestCase
         $enabledNode = $nodeChildren['enabled'];
         $this->assertTrue($this->getField($enabledNode, 'default'));
         $this->assertTrue($this->getField($enabledNode, 'defaultValue'));
+    }
+
+    public function testCanBeDisabledWithInfo()
+    {
+        $node = new ArrayNodeDefinition('root');
+        $node->canBeDisabled('Some info about disabling this node');
+
+        $child = $this->getField($node, 'children')['enabled'];
+
+        $this->assertEquals('Some info about disabling this node', $this->getField($child, 'attributes')['info']);
     }
 
     public function testIgnoreExtraKeys()

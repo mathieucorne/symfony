@@ -14,6 +14,8 @@ namespace Symfony\Component\Messenger\Bridge\AmazonSqs\Transport;
 use AsyncAws\Core\Exception\Http\HttpException;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Exception\TransportException;
+use Symfony\Component\Messenger\Stamp\RedeliveryStamp;
+use Symfony\Component\Messenger\Transport\CloseableTransportInterface;
 use Symfony\Component\Messenger\Transport\Receiver\KeepaliveReceiverInterface;
 use Symfony\Component\Messenger\Transport\Receiver\MessageCountAwareInterface;
 use Symfony\Component\Messenger\Transport\Receiver\ReceiverInterface;
@@ -27,7 +29,7 @@ use Symfony\Contracts\Service\ResetInterface;
 /**
  * @author Jérémy Derussé <jeremy@derusse.com>
  */
-class AmazonSqsTransport implements TransportInterface, KeepaliveReceiverInterface, SetupableTransportInterface, MessageCountAwareInterface, ResetInterface
+class AmazonSqsTransport implements TransportInterface, KeepaliveReceiverInterface, SetupableTransportInterface, CloseableTransportInterface, MessageCountAwareInterface, ResetInterface
 {
     private SerializerInterface $serializer;
 
@@ -36,6 +38,7 @@ class AmazonSqsTransport implements TransportInterface, KeepaliveReceiverInterfa
         ?SerializerInterface $serializer = null,
         private (ReceiverInterface&MessageCountAwareInterface)|null $receiver = null,
         private ?SenderInterface $sender = null,
+        private bool $handleRetries = true,
     ) {
         $this->serializer = $serializer ?? new PhpSerializer();
     }
@@ -70,6 +73,10 @@ class AmazonSqsTransport implements TransportInterface, KeepaliveReceiverInterfa
 
     public function send(Envelope $envelope): Envelope
     {
+        if (false === $this->handleRetries && $this->isRedelivered($envelope)) {
+            return $envelope;
+        }
+
         return $this->getSender()->send($envelope);
     }
 
@@ -91,6 +98,11 @@ class AmazonSqsTransport implements TransportInterface, KeepaliveReceiverInterfa
         }
     }
 
+    public function close(): void
+    {
+        $this->reset();
+    }
+
     private function getReceiver(): MessageCountAwareInterface&ReceiverInterface
     {
         return $this->receiver ??= new AmazonSqsReceiver($this->connection, $this->serializer);
@@ -99,5 +111,10 @@ class AmazonSqsTransport implements TransportInterface, KeepaliveReceiverInterfa
     private function getSender(): SenderInterface
     {
         return $this->sender ??= new AmazonSqsSender($this->connection, $this->serializer);
+    }
+
+    private function isRedelivered(Envelope $envelope): bool
+    {
+        return null !== $envelope->last(RedeliveryStamp::class);
     }
 }

@@ -12,15 +12,18 @@
 namespace Symfony\Bundle\FrameworkBundle\Tests\DependencyInjection;
 
 use Doctrine\DBAL\Connection;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\DependencyInjection\Configuration;
 use Symfony\Bundle\FullStack;
+use Symfony\Component\AssetMapper\Compressor\CompressorInterface;
 use Symfony\Component\Cache\Adapter\DoctrineAdapter;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Definition\Processor;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
 use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\JsonStreamer\JsonStreamWriter;
 use Symfony\Component\Lock\Store\SemaphoreStore;
 use Symfony\Component\Mailer\Mailer;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -59,9 +62,7 @@ class ConfigurationTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider getTestInvalidSessionName
-     */
+    #[DataProvider('getTestInvalidSessionName')]
     public function testInvalidSessionName($sessionName)
     {
         $processor = new Processor();
@@ -141,14 +142,17 @@ class ConfigurationTest extends TestCase
             'vendor_dir' => '%kernel.project_dir%/assets/vendor',
             'importmap_script_attributes' => [],
             'exclude_dotfiles' => true,
+            'precompress' => [
+                'enabled' => false,
+                'formats' => [],
+                'extensions' => interface_exists(CompressorInterface::class) ? CompressorInterface::DEFAULT_EXTENSIONS : [],
+            ],
         ];
 
         $this->assertEquals($defaultConfig, $config['asset_mapper']);
     }
 
-    /**
-     * @dataProvider provideImportmapPolyfillTests
-     */
+    #[DataProvider('provideImportmapPolyfillTests')]
     public function testAssetMapperPolyfillValue(mixed $polyfillValue, bool $isValid, mixed $expected)
     {
         $processor = new Processor();
@@ -182,9 +186,7 @@ class ConfigurationTest extends TestCase
         yield [false, true, false];
     }
 
-    /**
-     * @dataProvider provideValidAssetsPackageNameConfigurationTests
-     */
+    #[DataProvider('provideValidAssetsPackageNameConfigurationTests')]
     public function testValidAssetsPackageNameConfiguration($packageName)
     {
         $processor = new Processor();
@@ -214,9 +216,7 @@ class ConfigurationTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider provideInvalidAssetConfigurationTests
-     */
+    #[DataProvider('provideInvalidAssetConfigurationTests')]
     public function testInvalidAssetsConfiguration(array $assetConfig, $expectedMessage)
     {
         $processor = new Processor();
@@ -268,9 +268,7 @@ class ConfigurationTest extends TestCase
         yield [$createPackageConfig($config), 'You cannot use both "version" and "json_manifest_path" at the same time under "assets" packages.'];
     }
 
-    /**
-     * @dataProvider provideValidLockConfigurationTests
-     */
+    #[DataProvider('provideValidLockConfigurationTests')]
     public function testValidLockConfiguration($lockConfig, $processedConfig)
     {
         $processor = new Processor();
@@ -368,9 +366,7 @@ class ConfigurationTest extends TestCase
         );
     }
 
-    /**
-     * @dataProvider provideValidSemaphoreConfigurationTests
-     */
+    #[DataProvider('provideValidSemaphoreConfigurationTests')]
     public function testValidSemaphoreConfiguration($semaphoreConfig, $processedConfig)
     {
         $processor = new Processor();
@@ -778,12 +774,14 @@ class ConfigurationTest extends TestCase
                     'localizable_html_attributes' => [],
                 ],
                 'providers' => [],
+                'globals' => [],
             ],
             'validation' => [
                 'enabled' => !class_exists(FullStack::class),
                 'enable_attributes' => !class_exists(FullStack::class),
                 'static_method' => ['loadValidatorMetadata'],
                 'translation_domain' => 'validators',
+                'disable_translation' => false,
                 'mapping' => [
                     'paths' => [],
                 ],
@@ -814,10 +812,11 @@ class ConfigurationTest extends TestCase
             ],
             'type_info' => [
                 'enabled' => !class_exists(FullStack::class) && class_exists(Type::class),
+                'aliases' => [],
             ],
             'property_info' => [
                 'enabled' => !class_exists(FullStack::class),
-            ],
+            ] + (!class_exists(FullStack::class) ? ['with_constructor_extractor' => false] : []),
             'router' => [
                 'enabled' => false,
                 'default_uri' => null,
@@ -863,6 +862,11 @@ class ConfigurationTest extends TestCase
                 'vendor_dir' => '%kernel.project_dir%/assets/vendor',
                 'importmap_script_attributes' => [],
                 'exclude_dotfiles' => true,
+                'precompress' => [
+                    'enabled' => false,
+                    'formats' => [],
+                    'extensions' => interface_exists(CompressorInterface::class) ? CompressorInterface::DEFAULT_EXTENSIONS : [],
+                ],
             ],
             'cache' => [
                 'pools' => [],
@@ -870,6 +874,7 @@ class ConfigurationTest extends TestCase
                 'system' => 'cache.adapter.system',
                 'directory' => '%kernel.cache_dir%/pools/app',
                 'default_redis_provider' => 'redis://localhost',
+                'default_valkey_provider' => 'valkey://localhost',
                 'default_memcached_provider' => 'memcached://localhost',
                 'default_doctrine_dbal_provider' => 'database_connection',
                 'default_pdo_provider' => ContainerBuilder::willBeAvailable('doctrine/dbal', Connection::class, ['symfony/framework-bundle']) && class_exists(DoctrineAdapter::class) ? 'database_connection' : null,
@@ -926,6 +931,27 @@ class ConfigurationTest extends TestCase
                 'enabled' => !class_exists(FullStack::class) && class_exists(Mailer::class),
                 'message_bus' => null,
                 'headers' => [],
+                'dkim_signer' => [
+                    'enabled' => false,
+                    'options' => [],
+                    'key' => '',
+                    'domain' => '',
+                    'select' => '',
+                    'passphrase' => '',
+                ],
+                'smime_signer' => [
+                    'enabled' => false,
+                    'key' => '',
+                    'certificate' => '',
+                    'passphrase' => null,
+                    'extra_certificates' => null,
+                    'sign_options' => null,
+                ],
+                'smime_encrypter' => [
+                    'enabled' => false,
+                    'repository' => '',
+                    'cipher' => null,
+                ],
             ],
             'notifier' => [
                 'enabled' => !class_exists(FullStack::class) && class_exists(Notifier::class),
@@ -974,6 +1000,9 @@ class ConfigurationTest extends TestCase
             ],
             'remote-event' => [
                 'enabled' => !class_exists(FullStack::class) && class_exists(RemoteEvent::class),
+            ],
+            'json_streamer' => [
+                'enabled' => !class_exists(FullStack::class) && class_exists(JsonStreamWriter::class),
             ],
         ];
     }

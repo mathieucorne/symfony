@@ -33,7 +33,6 @@ use Symfony\Component\Lock\SharedLockStoreInterface;
 class DoctrineDbalPostgreSqlStore implements BlockingSharedLockStoreInterface, BlockingStoreInterface
 {
     private Connection $conn;
-    private static array $storeRegistry = [];
 
     /**
      * You can either pass an existing database connection a Doctrine DBAL Connection
@@ -269,7 +268,7 @@ class DoctrineDbalPostgreSqlStore implements BlockingSharedLockStoreInterface, B
 
         [$scheme, $rest] = explode(':', $dsn, 2);
         $driver = substr($scheme, 0, strpos($scheme, '+') ?: null);
-        if (!\in_array($driver, ['pgsql', 'postgres', 'postgresql'])) {
+        if (!\in_array($driver, ['pgsql', 'postgres', 'postgresql'], true)) {
             throw new InvalidArgumentException(\sprintf('The adapter "%s" does not support the "%s" driver.', __CLASS__, $driver));
         }
 
@@ -278,8 +277,8 @@ class DoctrineDbalPostgreSqlStore implements BlockingSharedLockStoreInterface, B
 
     private function getInternalStore(): SharedLockStoreInterface
     {
-        $namespace = spl_object_hash($this->conn);
+        static $storeRegistry = new \WeakMap();
 
-        return self::$storeRegistry[$namespace] ??= new InMemoryStore();
+        return $storeRegistry[$this->conn] ??= new InMemoryStore();
     }
 }

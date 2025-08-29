@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\TypeInfo\Tests\TypeResolver;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\TypeInfo\Exception\InvalidArgumentException;
 use Symfony\Component\TypeInfo\Exception\UnsupportedException;
@@ -21,6 +22,7 @@ use Symfony\Component\TypeInfo\Tests\Fixtures\DummyCollection;
 use Symfony\Component\TypeInfo\Tests\Fixtures\DummyEnum;
 use Symfony\Component\TypeInfo\Tests\Fixtures\DummyWithConstants;
 use Symfony\Component\TypeInfo\Tests\Fixtures\DummyWithTemplates;
+use Symfony\Component\TypeInfo\Tests\Fixtures\DummyWithTypeAliases;
 use Symfony\Component\TypeInfo\Type;
 use Symfony\Component\TypeInfo\TypeContext\TypeContext;
 use Symfony\Component\TypeInfo\TypeContext\TypeContextFactory;
@@ -35,17 +37,13 @@ class StringTypeResolverTest extends TestCase
         $this->resolver = new StringTypeResolver();
     }
 
-    /**
-     * @dataProvider resolveDataProvider
-     */
+    #[DataProvider('resolveDataProvider')]
     public function testResolve(Type $expectedType, string $string, ?TypeContext $typeContext = null)
     {
         $this->assertEquals($expectedType, $this->resolver->resolve($string, $typeContext));
     }
 
-    /**
-     * @dataProvider resolveDataProvider
-     */
+    #[DataProvider('resolveDataProvider')]
     public function testResolveStringable(Type $expectedType, string $string, ?TypeContext $typeContext = null)
     {
         $this->assertEquals($expectedType, $this->resolver->resolve(new class($string) implements \Stringable {
@@ -74,7 +72,12 @@ class StringTypeResolverTest extends TestCase
         yield [Type::list(Type::bool()), 'bool[]'];
 
         // array shape
-        yield [Type::array(), 'array{0: true, 1: false}'];
+        yield [Type::arrayShape(['foo' => Type::true(), 1 => Type::false()]), 'array{foo: true, 1: false}'];
+        yield [Type::arrayShape(['foo' => ['type' => Type::bool(), 'optional' => true]]), 'array{foo?: bool}'];
+        yield [Type::arrayShape(['foo' => Type::bool()], sealed: false), 'array{foo: bool, ...}'];
+        yield [Type::arrayShape(['foo' => Type::bool()], extraKeyType: Type::int(), extraValueType: Type::string()), 'array{foo: bool, ...<int, string>}'];
+        yield [Type::arrayShape(['foo' => Type::bool()], extraValueType: Type::int()), 'array{foo: bool, ...<int>}'];
+        yield [Type::arrayShape(['foo' => Type::union(Type::bool(), Type::float(), Type::int(), Type::null(), Type::string()), 'bar' => Type::string()]), 'array{foo: scalar|null, bar: string}'];
 
         // object shape
         yield [Type::object(), 'object{foo: true, bar: false}'];
@@ -97,12 +100,12 @@ class StringTypeResolverTest extends TestCase
         yield [Type::int(), DummyWithConstants::class.'::DUMMY_INT_*'];
         yield [Type::int(), DummyWithConstants::class.'::DUMMY_INT_A'];
         yield [Type::float(), DummyWithConstants::class.'::DUMMY_FLOAT_*'];
-        yield [Type::bool(), DummyWithConstants::class.'::DUMMY_TRUE_*'];
-        yield [Type::bool(), DummyWithConstants::class.'::DUMMY_FALSE_*'];
+        yield [Type::true(), DummyWithConstants::class.'::DUMMY_TRUE_*'];
+        yield [Type::false(), DummyWithConstants::class.'::DUMMY_FALSE_*'];
         yield [Type::null(), DummyWithConstants::class.'::DUMMY_NULL_*'];
-        yield [Type::array(), DummyWithConstants::class.'::DUMMY_ARRAY_*'];
+        yield [Type::array(null, Type::union(Type::int(), Type::string())), DummyWithConstants::class.'::DUMMY_ARRAY_*'];
         yield [Type::enum(DummyEnum::class, Type::string()), DummyWithConstants::class.'::DUMMY_ENUM_*'];
-        yield [Type::union(Type::string(), Type::int(), Type::float(), Type::bool(), Type::null(), Type::array(), Type::enum(DummyEnum::class, Type::string())), DummyWithConstants::class.'::DUMMY_MIX_*'];
+        yield [Type::union(Type::enum(DummyEnum::class, Type::string()), Type::array(Type::mixed(), Type::union(Type::int(), Type::string())), Type::string(), Type::int(), Type::float(), Type::bool(), Type::null()), DummyWithConstants::class.'::DUMMY_MIX_*'];
 
         // identifiers
         yield [Type::bool(), 'bool'];
@@ -146,7 +149,7 @@ class StringTypeResolverTest extends TestCase
         yield [Type::never(), 'never-return'];
         yield [Type::never(), 'never-returns'];
         yield [Type::never(), 'no-return'];
-        yield [Type::union(Type::int(), Type::string()), 'array-key'];
+        yield [Type::arrayKey(), 'array-key'];
         yield [Type::union(Type::int(), Type::float(), Type::string(), Type::bool()), 'scalar'];
         yield [Type::union(Type::int(), Type::float()), 'number'];
         yield [Type::union(Type::int(), Type::float(), Type::string()), 'numeric'];
@@ -192,6 +195,17 @@ class StringTypeResolverTest extends TestCase
         yield [Type::collection(Type::object(\IteratorAggregate::class), Type::string()), \IteratorAggregate::class.'<string>'];
         yield [Type::collection(Type::object(\IteratorAggregate::class), Type::bool(), Type::string()), \IteratorAggregate::class.'<string, bool>'];
         yield [Type::collection(Type::object(DummyCollection::class), Type::bool(), Type::string()), DummyCollection::class.'<string, bool>'];
+
+        // type aliases
+        yield [Type::int(), 'CustomInt', $typeContextFactory->createFromClassName(DummyWithTypeAliases::class)];
+        yield [Type::string(), 'CustomString', $typeContextFactory->createFromClassName(DummyWithTypeAliases::class)];
+    }
+
+    public function testResolveWithExtraTypeAlias()
+    {
+        $resolver = new StringTypeResolver(null, null, ['CustomAlias' => 'int']);
+
+        $this->assertEquals(Type::int(), $resolver->resolve('CustomAlias'));
     }
 
     public function testCannotResolveNonStringType()

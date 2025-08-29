@@ -11,6 +11,9 @@
 
 namespace Symfony\Component\Validator\Tests\Constraints;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\Constraints\LessThanOrEqualValidator;
 use Symfony\Component\Validator\Constraints\NegativeOrZero;
@@ -59,6 +62,8 @@ class LessThanOrEqualValidatorWithNegativeOrZeroConstraintTest extends AbstractC
         ];
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testThrowsConstraintExceptionIfPropertyPath()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -67,6 +72,8 @@ class LessThanOrEqualValidatorWithNegativeOrZeroConstraintTest extends AbstractC
         return new NegativeOrZero(['propertyPath' => 'field']);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testThrowsConstraintExceptionIfValue()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -75,9 +82,7 @@ class LessThanOrEqualValidatorWithNegativeOrZeroConstraintTest extends AbstractC
         return new NegativeOrZero(['value' => 0]);
     }
 
-    /**
-     * @dataProvider provideInvalidConstraintOptions
-     */
+    #[DataProvider('provideInvalidConstraintOptions')]
     public function testThrowsConstraintExceptionIfNoValueOrPropertyPath($options)
     {
         $this->markTestSkipped('Value option always set for NegativeOrZero constraint');
@@ -98,9 +103,7 @@ class LessThanOrEqualValidatorWithNegativeOrZeroConstraintTest extends AbstractC
         $this->markTestSkipped('PropertyPath option is not used in NegativeOrZero constraint');
     }
 
-    /**
-     * @dataProvider provideValidComparisonsToPropertyPath
-     */
+    #[DataProvider('provideValidComparisonsToPropertyPath')]
     public function testValidComparisonToPropertyPath($comparedValue)
     {
         $this->markTestSkipped('PropertyPath option is not used in NegativeOrZero constraint');

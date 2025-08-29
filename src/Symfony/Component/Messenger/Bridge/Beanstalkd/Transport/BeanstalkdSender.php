@@ -36,11 +36,12 @@ class BeanstalkdSender implements SenderInterface
     {
         $encodedMessage = $this->serializer->encode($envelope);
 
-        /** @var DelayStamp|null $delayStamp */
-        $delayStamp = $envelope->last(DelayStamp::class);
-        $delayInMs = null !== $delayStamp ? $delayStamp->getDelay() : 0;
-
-        $id = $this->connection->send($encodedMessage['body'], $encodedMessage['headers'] ?? [], $delayInMs);
+        $id = $this->connection->send(
+            $encodedMessage['body'],
+            $encodedMessage['headers'] ?? [],
+            $envelope->last(DelayStamp::class)?->getDelay() ?? 0,
+            $envelope->last(BeanstalkdPriorityStamp::class)?->priority,
+        );
 
         return $envelope->with(new TransportMessageIdStamp($id));
     }

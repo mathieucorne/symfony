@@ -62,8 +62,14 @@ final class StringTypeResolver implements TypeResolverInterface
     private readonly Lexer $lexer;
     private readonly TypeParser $parser;
 
-    public function __construct(?Lexer $lexer = null, ?TypeParser $parser = null)
-    {
+    /**
+     * @param array<string, string> $extraTypeAliases
+     */
+    public function __construct(
+        ?Lexer $lexer = null,
+        ?TypeParser $parser = null,
+        private readonly array $extraTypeAliases = [],
+    ) {
         if (class_exists(ParserConfig::class)) {
             $this->lexer = $lexer ?? new Lexer(new ParserConfig([]));
             $this->parser = $parser ?? new TypeParser($config = new ParserConfig([]), new ConstExprParser($config));
@@ -104,7 +110,20 @@ final class StringTypeResolver implements TypeResolverInterface
         }
 
         if ($node instanceof ArrayShapeNode) {
-            return Type::array();
+            $shape = [];
+            foreach ($node->items as $item) {
+                $shape[(string) $item->keyName] = [
+                    'type' => $this->getTypeFromNode($item->valueType, $typeContext),
+                    'optional' => $item->optional,
+                ];
+            }
+
+            return Type::arrayShape(
+                $shape,
+                $node->sealed,
+                $node->unsealedType?->keyType ? $this->getTypeFromNode($node->unsealedType->keyType, $typeContext) : null,
+                $node->unsealedType?->valueType ? $this->getTypeFromNode($node->unsealedType->valueType, $typeContext) : null,
+            );
         }
 
         if ($node instanceof ObjectShapeNode) {
@@ -136,29 +155,11 @@ final class StringTypeResolver implements TypeResolverInterface
 
                 foreach ((new \ReflectionClass($className))->getReflectionConstants() as $const) {
                     if (preg_match('/^'.str_replace('\*', '.*', preg_quote($node->constExpr->name, '/')).'$/', $const->getName())) {
-                        $constValue = $const->getValue();
-
-                        $types[] = match (true) {
-                            true === $constValue,
-                            false === $constValue => Type::bool(),
-                            null === $constValue => Type::null(),
-                            \is_string($constValue) => Type::string(),
-                            \is_int($constValue) => Type::int(),
-                            \is_float($constValue) => Type::float(),
-                            \is_array($constValue) => Type::array(),
-                            $constValue instanceof \UnitEnum => Type::enum($constValue::class),
-                            default => Type::mixed(),
-                        };
+                        $types[] = Type::fromValue($const->getValue());
                     }
                 }
 
-                $types = array_unique($types);
-
-                if (\count($types) > 2) {
-                    return Type::union(...$types);
-                }
-
-                return $types[0] ?? Type::null();
+                return CollectionType::mergeCollectionValueTypes($types);
             }
 
             return match ($node->constExpr::class) {
@@ -201,7 +202,7 @@ final class StringTypeResolver implements TypeResolverInterface
                 'iterable' => Type::iterable(),
                 'mixed' => Type::mixed(),
                 'null' => Type::null(),
-                'array-key' => Type::union(Type::int(), Type::string()),
+                'array-key' => Type::arrayKey(),
                 'scalar' => Type::union(Type::int(), Type::float(), Type::string(), Type::bool()),
                 'number' => Type::union(Type::int(), Type::float()),
                 'numeric' => Type::union(Type::int(), Type::float(), Type::string()),
@@ -338,6 +339,14 @@ final class StringTypeResolver implements TypeResolverInterface
 
         if (isset($typeContext?->templates[$identifier])) {
             return Type::template($identifier, $typeContext->templates[$identifier]);
+        }
+
+        if (isset($typeContext?->typeAliases[$identifier])) {
+            return $typeContext->typeAliases[$identifier];
+        }
+
+        if (isset($this->extraTypeAliases[$identifier])) {
+            return $this->resolve($this->extraTypeAliases[$identifier]);
         }
 
         throw new \DomainException(\sprintf('Unhandled "%s" identifier.', $identifier));

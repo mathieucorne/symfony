@@ -1,6 +1,17 @@
 CHANGELOG
 =========
 
+7.4
+---
+
+ * Deprecate `TranslatableMessage::__toString`
+ * Add `Symfony\Component\Translation\StaticMessage`
+
+7.3
+---
+
+ * Add `Translator::addGlobalParameter()` to allow defining global translation parameters
+
 7.2
 ---
 

@@ -1,6 +1,13 @@
 CHANGELOG
 =========
 
+7.3
+---
+
+ * Deprecate `LdapUser::eraseCredentials()` in favor of `__serialize()`
+ * Add `RoleFetcherInterface` to allow roles fetching at user loading
+ * Add ability to fetch LDAP roles
+
 7.2
 ---
 
@@ -83,7 +90,7 @@ CHANGELOG
 3.3.0
 -----
 
- * The `RenameEntryInterface` inferface is deprecated, and will be merged with `EntryManagerInterface` in 4.0.
+ * The `RenameEntryInterface` interface is deprecated, and will be merged with `EntryManagerInterface` in 4.0.
 
 3.1.0
 -----

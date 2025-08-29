@@ -29,8 +29,10 @@ use Doctrine\DBAL\Query\ForUpdate\ConflictResolutionMode;
 use Doctrine\DBAL\Query\QueryBuilder;
 use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Doctrine\DBAL\Schema\NamedObject;
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\SchemaConfig;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Messenger\Bridge\Doctrine\Tests\Fixtures\DummyMessage;
@@ -299,6 +301,110 @@ class ConnectionTest extends TestCase
         self::assertSame('1', $id);
     }
 
+    public function testKeepalive()
+    {
+        $queryBuilder = $this->getQueryBuilderMock();
+        $driverConnection = $this->getDBALConnectionMock();
+
+        $connection = new Connection(['redeliver_timeout' => 30, 'table_name' => 'messenger_messages'], $driverConnection);
+
+        $queryBuilder->expects($this->once())
+            ->method('update')
+            ->with('messenger_messages')
+            ->willReturnSelf();
+
+        $queryBuilder->expects($this->once())
+            ->method('set')
+            ->with('delivered_at', '?')
+            ->willReturnSelf();
+
+        $queryBuilder->expects($this->once())
+            ->method('where')
+            ->with('id = ?')
+            ->willReturnSelf();
+
+        $driverConnection->expects($this->once())
+            ->method('beginTransaction');
+
+        $driverConnection->expects($this->once())
+            ->method('createQueryBuilder')
+            ->willReturn($queryBuilder);
+
+        $queryBuilder->expects($this->once())
+            ->method('getSQL')
+            ->willReturn('UPDATE');
+
+        $driverConnection->expects($this->once())
+            ->method('executeStatement')
+            ->with('UPDATE')
+            ->willReturn(1);
+
+        $driverConnection->expects($this->once())
+            ->method('commit');
+
+        $connection->keepalive('1');
+    }
+
+    public function testKeepaliveRollback()
+    {
+        $queryBuilder = $this->getQueryBuilderMock();
+        $driverConnection = $this->getDBALConnectionMock();
+
+        $connection = new Connection(['redeliver_timeout' => 30, 'table_name' => 'messenger_messages'], $driverConnection);
+
+        $queryBuilder->expects($this->once())
+            ->method('update')
+            ->with('messenger_messages')
+            ->willReturnSelf();
+
+        $queryBuilder->expects($this->once())
+            ->method('set')
+            ->with('delivered_at', '?')
+            ->willReturnSelf();
+
+        $queryBuilder->expects($this->once())
+            ->method('where')
+            ->with('id = ?')
+            ->willReturnSelf();
+
+        $driverConnection->expects($this->once())
+            ->method('beginTransaction');
+
+        $driverConnection->expects($this->once())
+            ->method('createQueryBuilder')
+            ->willReturn($queryBuilder);
+
+        $queryBuilder->expects($this->once())
+            ->method('getSQL')
+            ->willReturn('UPDATE');
+
+        $driverConnection->expects($this->once())
+            ->method('executeStatement')
+            ->willThrowException($this->createMock(DBALException::class));
+
+        $driverConnection->expects($this->never())
+            ->method('commit');
+
+        $driverConnection->expects($this->once())
+            ->method('rollBack');
+
+        $this->expectException(TransportException::class);
+
+        $connection->keepalive('1');
+    }
+
+    public function testKeepaliveThrowsExceptionWhenRedeliverTimeoutIsLessThenInterval()
+    {
+        $driverConnection = $this->getDBALConnectionMock();
+
+        $connection = new Connection(['redeliver_timeout' => 30], $driverConnection);
+
+        $this->expectException(TransportException::class);
+        $this->expectExceptionMessage('Doctrine redeliver_timeout (30s) cannot be smaller than the keepalive interval (60s).');
+
+        $connection->keepalive('1', 60);
+    }
+
     private function getDBALConnectionMock()
     {
         $driverConnection = $this->createMock(DBALConnection::class);
@@ -351,9 +457,7 @@ class ConnectionTest extends TestCase
         return $stmt;
     }
 
-    /**
-     * @dataProvider buildConfigurationProvider
-     */
+    #[DataProvider('buildConfigurationProvider')]
     public function testBuildConfiguration(string $dsn, array $options, string $expectedConnection, string $expectedTableName, int $expectedRedeliverTimeout, string $expectedQueue, bool $expectedAutoSetup)
     {
         $config = Connection::buildConfiguration($dsn, $options);
@@ -537,9 +641,7 @@ class ConnectionTest extends TestCase
         $this->assertEquals(['type' => DummyMessage::class], $doctrineEnvelopes[1]['headers']);
     }
 
-    /**
-     * @dataProvider providePlatformSql
-     */
+    #[DataProvider('providePlatformSql')]
     public function testGeneratedSql(AbstractPlatform $platform, string $expectedSql)
     {
         $driverConnection = $this->createMock(DBALConnection::class);
@@ -699,12 +801,10 @@ class ConnectionTest extends TestCase
         $connection = new Connection([], $driverConnection);
         $connection->configureSchema($schema, $driverConnection, fn () => true);
         $table = $schema->getTable('messenger_messages');
-        $this->assertEmpty($table->getColumns(), 'The table was not overwritten');
+        $this->assertSame([], $table->getColumns(), 'The table was not overwritten');
     }
 
-    /**
-     * @dataProvider provideFindAllSqlGeneratedByPlatform
-     */
+    #[DataProvider('provideFindAllSqlGeneratedByPlatform')]
     public function testFindAllSqlGenerated(AbstractPlatform $platform, string $expectedSql)
     {
         $driverConnection = $this->createMock(DBALConnection::class);
@@ -763,6 +863,12 @@ class ConnectionTest extends TestCase
     {
         $driverConnection = $this->createMock(DBALConnection::class);
         $driverConnection->method('getDatabasePlatform')->willReturn(new OraclePlatform());
+
+        // Mock the result returned by executeQuery to be an Oracle version 12.1.0 or higher.
+        $result = $this->createMock(Result::class);
+        $result->method('fetchOne')->willReturn('12.1.0');
+        $driverConnection->method('executeQuery')->willReturn($result);
+
         $schema = new Schema();
 
         $connection = new Connection(['table_name' => 'messenger_messages'], $driverConnection);
@@ -772,7 +878,14 @@ class ConnectionTest extends TestCase
         $sequences = $schema->getSequences();
         $this->assertCount(1, $sequences);
         $sequence = array_pop($sequences);
-        $sequenceNameSuffix = substr($sequence->getName(), -\strlen($expectedSuffix));
+        if ($sequence instanceof NamedObject) {
+            // DBAL 4.4+
+            $sequenceName = $sequence->getObjectName()->toString();
+        } else {
+            // DBAL < 4.4
+            $sequenceName = $sequence->getName();
+        }
+        $sequenceNameSuffix = substr($sequenceName, -\strlen($expectedSuffix));
         $this->assertSame($expectedSuffix, $sequenceNameSuffix);
     }
 }

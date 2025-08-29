@@ -18,6 +18,10 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception as DBALException;
 use Doctrine\DBAL\Exception\TableNotFoundException;
 use Doctrine\DBAL\ParameterType;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\OraclePlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Doctrine\DBAL\Schema\DefaultSchemaManagerFactory;
 use Doctrine\DBAL\Schema\Name\Identifier;
 use Doctrine\DBAL\Schema\Name\UnqualifiedName;
@@ -338,17 +342,17 @@ class DoctrineDbalAdapter extends AbstractAdapter implements PruneableInterface
     /**
      * @internal
      */
-    protected function getId(mixed $key): string
+    protected function getId(mixed $key, ?string $namespace = null): string
     {
         if ('pgsql' !== $this->platformName ??= $this->getPlatformName()) {
-            return parent::getId($key);
+            return parent::getId($key, $namespace);
         }
 
         if (str_contains($key, "\0") || str_contains($key, '%') || !preg_match('//u', $key)) {
             $key = rawurlencode($key);
         }
 
-        return parent::getId($key);
+        return parent::getId($key, $namespace);
     }
 
     private function getPlatformName(): string
@@ -359,12 +363,19 @@ class DoctrineDbalAdapter extends AbstractAdapter implements PruneableInterface
 
         $platform = $this->conn->getDatabasePlatform();
 
+        if (interface_exists(DBALException::class)) {
+            // DBAL 4+
+            $sqlitePlatformClass = 'Doctrine\DBAL\Platforms\SQLitePlatform';
+        } else {
+            $sqlitePlatformClass = 'Doctrine\DBAL\Platforms\SqlitePlatform';
+        }
+
         return $this->platformName = match (true) {
-            $platform instanceof \Doctrine\DBAL\Platforms\AbstractMySQLPlatform => 'mysql',
-            $platform instanceof \Doctrine\DBAL\Platforms\SqlitePlatform => 'sqlite',
-            $platform instanceof \Doctrine\DBAL\Platforms\PostgreSQLPlatform => 'pgsql',
-            $platform instanceof \Doctrine\DBAL\Platforms\OraclePlatform => 'oci',
-            $platform instanceof \Doctrine\DBAL\Platforms\SQLServerPlatform => 'sqlsrv',
+            $platform instanceof AbstractMySQLPlatform => 'mysql',
+            $platform instanceof $sqlitePlatformClass => 'sqlite',
+            $platform instanceof PostgreSQLPlatform => 'pgsql',
+            $platform instanceof OraclePlatform => 'oci',
+            $platform instanceof SQLServerPlatform => 'sqlsrv',
             default => $platform::class,
         };
     }

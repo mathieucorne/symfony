@@ -24,6 +24,57 @@ MAILER_DSN=sweego+api://API_KEY@default
 where:
  - `API_KEY` is your Sweego API Key
 
+Features
+--------
+
+### Attachments
+
+The bridge supports both regular attachments and inline attachments (for embedding images in HTML emails):
+
+```php
+use Symfony\Component\Mime\Email;
+
+$email = new Email();
+$email
+    ->to('to@example.com')
+    ->from('from@example.com')
+    ->subject('Email with attachments')
+    ->text('Here is the text version')
+    ->html('<p>Here is the HTML content</p>')
+    // Regular attachment
+    ->attach('Hello world!', 'test.txt', 'text/plain')
+    // Inline attachment (embedded image)
+    ->embed(fopen('image.jpg', 'r'), 'image.jpg', 'image/jpeg')
+;
+```
+
+Webhook
+-------
+
+Configure the webhook routing:
+
+```yaml
+framework:
+    webhook:
+        routing:
+            sweego_mailer:
+                service: mailer.webhook.request_parser.sweego
+                secret: '%env(SWEEGO_WEBHOOK_SECRET)%'
+```
+
+And a consumer:
+
+```php
+#[AsRemoteEventConsumer(name: 'sweego_mailer')]
+class SweegoMailEventConsumer implements ConsumerInterface
+{
+    public function consume(RemoteEvent|AbstractMailerEvent $event): void
+    {
+        // your code
+    }
+}
+```
+
 Sponsor
 -------
 

@@ -11,15 +11,15 @@
 
 namespace Symfony\Component\Notifier\Tests\Exception;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bridge\PhpUnit\ClassExistsMock;
 use Symfony\Component\Notifier\Bridge;
 use Symfony\Component\Notifier\Exception\UnsupportedSchemeException;
 use Symfony\Component\Notifier\Transport\Dsn;
 
-/**
- * @runTestsInSeparateProcesses
- */
+#[RunTestsInSeparateProcesses]
 final class UnsupportedSchemeExceptionTest extends TestCase
 {
     public static function setUpBeforeClass(): void
@@ -58,6 +58,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
             Bridge\Lox24\Lox24TransportFactory::class => false,
             Bridge\Mailjet\MailjetTransportFactory::class => false,
             Bridge\Mastodon\MastodonTransportFactory::class => false,
+            Bridge\Matrix\MatrixTransportFactory::class => false,
             Bridge\Mattermost\MattermostTransportFactory::class => false,
             Bridge\Mercure\MercureTransportFactory::class => false,
             Bridge\MessageBird\MessageBirdTransportFactory::class => false,
@@ -109,9 +110,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
         ]);
     }
 
-    /**
-     * @dataProvider messageWhereSchemeIsPartOfSchemeToPackageMapProvider
-     */
+    #[DataProvider('messageWhereSchemeIsPartOfSchemeToPackageMapProvider')]
     public function testMessageWhereSchemeIsPartOfSchemeToPackageMap(string $scheme, string $package)
     {
         $dsn = new Dsn(\sprintf('%s://localhost', $scheme));
@@ -155,6 +154,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
         yield ['lox24', 'symfony/lox24-notifier'];
         yield ['mailjet', 'symfony/mailjet-notifier'];
         yield ['mastodon', 'symfony/mastodon-notifier'];
+        yield ['matrix', 'symfony/matrix-notifier'];
         yield ['mattermost', 'symfony/mattermost-notifier'];
         yield ['mercure', 'symfony/mercure-notifier'];
         yield ['messagebird', 'symfony/message-bird-notifier'];
@@ -201,9 +201,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
         yield ['goip', 'symfony/go-ip-notifier'];
     }
 
-    /**
-     * @dataProvider messageWhereSchemeIsNotPartOfSchemeToPackageMapProvider
-     */
+    #[DataProvider('messageWhereSchemeIsNotPartOfSchemeToPackageMapProvider')]
     public function testMessageWhereSchemeIsNotPartOfSchemeToPackageMap(string $expected, Dsn $dsn, ?string $name, array $supported)
     {
         $this->assertSame(

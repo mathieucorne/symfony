@@ -101,6 +101,10 @@ final class SweegoApiTransport extends AbstractApiTransport
             $payload['message-html'] = $email->getHtmlBody();
         }
 
+        if ($email->getAttachments()) {
+            $payload['attachments'] = $this->getAttachments($email);
+        }
+
         if ($payload['headers'] = $this->prepareHeaders($email->getHeaders())) {
             if (\count($payload['headers']) > 5) {
                 throw new InvalidArgumentException('Sweego API supports up to 5 headers.');
@@ -112,13 +116,36 @@ final class SweegoApiTransport extends AbstractApiTransport
         return $payload;
     }
 
+    private function getAttachments(Email $email): array
+    {
+        $attachments = [];
+        foreach ($email->getAttachments() as $attachment) {
+            $headers = $attachment->getPreparedHeaders();
+            $filename = $headers->getHeaderParameter('Content-Disposition', 'filename');
+            $disposition = $headers->getHeaderBody('Content-Disposition');
+
+            $att = [
+                'content' => $attachment->bodyToString(),
+                'filename' => $filename,
+                'disposition' => $disposition,
+            ];
+
+            if ('inline' === $disposition) {
+                $att['content_id'] = $attachment->hasContentId() ? $attachment->getContentId() : $filename;
+            }
+
+            $attachments[] = $att;
+        }
+
+        return $attachments;
+    }
+
     private function prepareHeaders(Headers $headers): array
     {
         $headersPrepared = [];
-        // Sweego API does not accept those headers.
-        $headersToBypass = ['To', 'From', 'Subject'];
         foreach ($headers->all() as $header) {
-            if (\in_array($header->getName(), $headersToBypass, true)) {
+            // Sweego API does not accept those headers.
+            if (\in_array($header->getName(), ['To', 'From', 'Subject'], true)) {
                 continue;
             }
 

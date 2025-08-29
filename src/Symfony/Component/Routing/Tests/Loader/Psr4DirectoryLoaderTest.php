@@ -11,10 +11,12 @@
 
 namespace Symfony\Component\Routing\Tests\Loader;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\Config\Loader\DelegatingLoader;
 use Symfony\Component\Config\Loader\LoaderResolver;
+use Symfony\Component\Routing\Exception\InvalidArgumentException;
 use Symfony\Component\Routing\Loader\AttributeClassLoader;
 use Symfony\Component\Routing\Loader\Psr4DirectoryLoader;
 use Symfony\Component\Routing\Route;
@@ -65,9 +67,7 @@ class Psr4DirectoryLoaderTest extends TestCase
         $this->assertSame(MyChildController::class.'::someAction', $route->getDefault('_controller'));
     }
 
-    /**
-     * @dataProvider provideNamespacesThatNeedTrimming
-     */
+    #[DataProvider('provideNamespacesThatNeedTrimming')]
     public function testPsr4NamespaceTrim(string $namespace)
     {
         $route = $this->getLoader()
@@ -87,6 +87,32 @@ class Psr4DirectoryLoaderTest extends TestCase
             ['\\Symfony\Component\Routing\Tests\Fixtures\Psr4Controllers'],
             ['Symfony\Component\Routing\Tests\Fixtures\Psr4Controllers\\'],
             ['\\Symfony\Component\Routing\Tests\Fixtures\Psr4Controllers\\'],
+        ];
+    }
+
+    #[DataProvider('provideInvalidPsr4Namespaces')]
+    public function testInvalidPsr4Namespace(string $namespace, string $expectedExceptionMessage)
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($expectedExceptionMessage);
+
+        $this->getLoader()->load(
+            ['path' => 'Psr4Controllers', 'namespace' => $namespace],
+            'attribute'
+        );
+    }
+
+    public static function provideInvalidPsr4Namespaces(): array
+    {
+        return [
+            'slash instead of back-slash' => [
+                'namespace' => 'App\Application/Controllers',
+                'expectedExceptionMessage' => 'Namespace "App\Application/Controllers" is not a valid PSR-4 prefix.',
+            ],
+            'invalid namespace' => [
+                'namespace' => 'App\Contro llers',
+                'expectedExceptionMessage' => 'Namespace "App\Contro llers" is not a valid PSR-4 prefix.',
+            ],
         ];
     }
 

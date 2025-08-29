@@ -13,7 +13,10 @@ namespace Symfony\Bundle\FrameworkBundle\Tests\Kernel;
 
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
-use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\DependencyInjection\Loader\ClosureLoader;
@@ -152,6 +155,23 @@ class MicroKernelTraitTest extends TestCase
         $this->assertSame('Hello World!', $response->getContent());
     }
 
+    public function testKernelCommand()
+    {
+        if (!property_exists(AsCommand::class, 'help')) {
+            $this->markTestSkipped('Invokable command no available.');
+        }
+
+        $kernel = $this->kernel = new KernelCommand('kernel_command');
+        $application = new Application($kernel);
+
+        $input = new ArrayInput(['command' => 'kernel:hello']);
+        $output = new BufferedOutput();
+
+        $this->assertTrue($application->has('kernel:hello'));
+        $this->assertSame(0, $application->doRun($input, $output));
+        $this->assertSame('Hello Kernel!', $output->fetch());
+    }
+
     public function testDefaultKernel()
     {
         $kernel = $this->kernel = new DefaultKernel('test', false);
@@ -163,29 +183,5 @@ class MicroKernelTraitTest extends TestCase
         $response = $kernel->handle($request, HttpKernelInterface::MAIN_REQUEST, false);
 
         $this->assertSame('OK', $response->getContent());
-    }
-}
-
-abstract class MinimalKernel extends Kernel
-{
-    use MicroKernelTrait;
-
-    private string $cacheDir;
-
-    public function __construct(string $cacheDir)
-    {
-        parent::__construct('test', false);
-
-        $this->cacheDir = sys_get_temp_dir().'/'.$cacheDir;
-    }
-
-    public function getCacheDir(): string
-    {
-        return $this->cacheDir;
-    }
-
-    public function getLogDir(): string
-    {
-        return $this->cacheDir;
     }
 }

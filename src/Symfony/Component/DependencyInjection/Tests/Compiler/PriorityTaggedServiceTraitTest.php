@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\DependencyInjection\Tests\Compiler;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\Attribute\AsTaggedItem;
@@ -171,9 +172,7 @@ class PriorityTaggedServiceTraitTest extends TestCase
         $this->assertEquals($expected, $priorityTaggedServiceTraitImplementation->test($tag, $container));
     }
 
-    /**
-     * @dataProvider provideInvalidDefaultMethods
-     */
+    #[DataProvider('provideInvalidDefaultMethods')]
     public function testTheIndexedTagsByDefaultIndexMethodFailure(string $defaultIndexMethod, ?string $indexAttribute, string $expectedExceptionMessage)
     {
         $this->expectException(InvalidArgumentException::class);
@@ -218,6 +217,9 @@ class PriorityTaggedServiceTraitTest extends TestCase
         $container->register('service5', HelloNamedService2::class)
             ->setAutoconfigured(true)
             ->addTag('my_custom_tag');
+        $container->register('service6', MultiTagHelloNamedService::class)
+            ->setAutoconfigured(true)
+            ->addTag('my_custom_tag');
 
         (new ResolveInstanceofConditionalsPass())->process($container);
 
@@ -226,12 +228,31 @@ class PriorityTaggedServiceTraitTest extends TestCase
         $tag = new TaggedIteratorArgument('my_custom_tag', 'foo', 'getFooBar', exclude: ['service4', 'service5']);
         $expected = [
             'service3' => new TypedReference('service3', HelloNamedService2::class),
+            'multi_hello_2' => new TypedReference('service6', MultiTagHelloNamedService::class),
             'hello' => new TypedReference('service2', HelloNamedService::class),
+            'multi_hello_1' => new TypedReference('service6', MultiTagHelloNamedService::class),
             'service1' => new TypedReference('service1', FooTagClass::class),
         ];
+
         $services = $priorityTaggedServiceTraitImplementation->test($tag, $container);
         $this->assertSame(array_keys($expected), array_keys($services));
         $this->assertEquals($expected, $priorityTaggedServiceTraitImplementation->test($tag, $container));
+    }
+
+    public function testTaggedItemAttributesRepeatedWithoutNameThrows()
+    {
+        $container = new ContainerBuilder();
+        $container->register('service1', MultiNoNameTagHelloNamedService::class)
+            ->setAutoconfigured(true)
+            ->addTag('my_custom_tag');
+
+        (new ResolveInstanceofConditionalsPass())->process($container);
+        $tag = new TaggedIteratorArgument('my_custom_tag', 'foo', 'getFooBar', exclude: ['service4', 'service5']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Attribute "Symfony\Component\DependencyInjection\Attribute\AsTaggedItem" on class "Symfony\Component\DependencyInjection\Tests\Compiler\MultiNoNameTagHelloNamedService" cannot have an empty index when repeated.');
+
+        (new PriorityTaggedServiceTraitImplementation())->test($tag, $container);
     }
 
     public function testResolveIndexedTags()
@@ -280,6 +301,18 @@ class HelloNamedService extends \stdClass
 
 #[AsTaggedItem(priority: 2)]
 class HelloNamedService2
+{
+}
+
+#[AsTaggedItem(index: 'multi_hello_1', priority: 1)]
+#[AsTaggedItem(index: 'multi_hello_2', priority: 2)]
+class MultiTagHelloNamedService
+{
+}
+
+#[AsTaggedItem(priority: 1)]
+#[AsTaggedItem(priority: 2)]
+class MultiNoNameTagHelloNamedService
 {
 }
 

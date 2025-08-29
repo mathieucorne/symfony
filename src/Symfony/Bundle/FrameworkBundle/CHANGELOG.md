@@ -1,6 +1,72 @@
 CHANGELOG
 =========
 
+7.4
+---
+
+ * Auto-register routes from attributes found on controller services
+ * Add `ControllerHelper`; the helpers from AbstractController as a standalone service
+ * Allow using their name without added suffix when using `#[Target]` for custom services
+ * Deprecate `Symfony\Bundle\FrameworkBundle\Console\Application::add()` in favor of `Symfony\Bundle\FrameworkBundle\Console\Application::addCommand()`
+ * Add `assertEmailAddressNotContains()` to the `MailerAssertionsTrait`
+ * Add `framework.type_info.aliases` option
+
+7.3
+---
+
+ * Add `errors.php` and `webhook.php` routing configuration files (use them instead of their XML equivalent)
+
+   Before:
+
+   ```yaml
+   when@dev:
+       _errors:
+           resource: '@FrameworkBundle/Resources/config/routing/errors.xml'
+           prefix: /_error
+
+   webhook:
+       resource: '@FrameworkBundle/Resources/config/routing/webhook.xml'
+       prefix: /webhook
+   ```
+
+   After:
+
+   ```yaml
+   when@dev:
+       _errors:
+           resource: '@FrameworkBundle/Resources/config/routing/errors.php'
+           prefix: /_error
+
+   webhook:
+       resource: '@FrameworkBundle/Resources/config/routing/webhook.php'
+       prefix: /webhook
+   ```
+
+ * Add support for the ObjectMapper component
+ * Add support for assets pre-compression
+ * Rename `TranslationUpdateCommand` to `TranslationExtractCommand`
+ * Add JsonStreamer services and configuration
+ * Add new `framework.property_info.with_constructor_extractor` option to allow enabling or disabling the constructor extractor integration
+ * Deprecate the `--show-arguments` option of the `container:debug` command, as arguments are now always shown
+ * Add autowiring alias for `RateLimiterFactoryInterface`
+ * Add `framework.validation.disable_translation` option
+ * Add support for signal plain name in the `messenger.stop_worker_on_signals` configuration
+ * Deprecate the `framework.validation.cache` option
+ * Add `--method` option to the `debug:router` command
+ * Auto-exclude DI extensions, test cases, entities and messenger messages
+ * Add DI alias from `ServicesResetterInterface` to `services_resetter`
+ * Add `methods` argument in `#[IsCsrfTokenValid]` attribute
+ * Allow configuring the logging channel per type of exceptions
+ * Enable service argument resolution on classes that use the `#[Route]` attribute,
+   the `#[AsController]` attribute is no longer required
+ * Deprecate setting the `framework.profiler.collect_serializer_data` config option to `false`
+ * Set `framework.rate_limiter.limiters.*.lock_factory` to `auto` by default
+ * Deprecate `RateLimiterFactory` autowiring aliases, use `RateLimiterFactoryInterface` instead
+ * Allow configuring compound rate limiters
+ * Make `ValidatorCacheWarmer` use `kernel.build_dir` instead of `cache_dir`
+ * Make `SerializeCacheWarmer` use `kernel.build_dir` instead of `cache_dir`
+ * Support executing custom workflow validators during container compilation
+
 7.2
 ---
 
@@ -642,7 +708,7 @@ CHANGELOG
  * added Client::enableProfiler()
  * a new parameter has been added to the DIC: `router.request_context.base_url`
    You can customize it for your functional tests or for generating URLs with
-   the right base URL when your are in the CLI context.
+   the right base URL when you are in the CLI context.
  * added support for default templates per render tag
 
 2.1.0

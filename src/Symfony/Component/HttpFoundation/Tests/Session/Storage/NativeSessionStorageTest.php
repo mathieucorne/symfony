@@ -11,8 +11,11 @@
 
 namespace Symfony\Component\HttpFoundation\Tests\Session\Storage;
 
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
-use Symfony\Bridge\PhpUnit\ExpectUserDeprecationMessageTrait;
 use Symfony\Component\HttpFoundation\Session\Attribute\AttributeBag;
 use Symfony\Component\HttpFoundation\Session\Flash\FlashBag;
 use Symfony\Component\HttpFoundation\Session\Storage\Handler\NativeFileSessionHandler;
@@ -26,15 +29,11 @@ use Symfony\Component\HttpFoundation\Session\Storage\Proxy\SessionHandlerProxy;
  * @author Drak <drak@zikula.org>
  *
  * These tests require separate processes.
- *
- * @runTestsInSeparateProcesses
- *
- * @preserveGlobalState disabled
  */
+#[PreserveGlobalState(false)]
+#[RunTestsInSeparateProcesses]
 class NativeSessionStorageTest extends TestCase
 {
-    use ExpectUserDeprecationMessageTrait;
-
     private string $savePath;
 
     private $initialSessionSaveHandler;
@@ -195,6 +194,10 @@ class NativeSessionStorageTest extends TestCase
             'cookie_samesite' => 'lax',
         ];
 
+        if (\PHP_VERSION_ID >= 80500) {
+            $options['cookie_partitioned'] = false;
+        }
+
         $this->getStorage($options);
         $temp = session_get_cookie_params();
         $gco = [];
@@ -218,10 +221,10 @@ class NativeSessionStorageTest extends TestCase
     }
 
     /**
-     * @group legacy
-     *
      * The test must only be removed when the "session.trans_sid_tags" option is removed from PHP or when the "trans_sid_tags" option is no longer supported by the native session storage.
      */
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testTransSidTagsOption()
     {
         $this->expectUserDeprecationMessage('Since symfony/http-foundation 7.2: NativeSessionStorage\'s "trans_sid_tags" option is deprecated and will be ignored in Symfony 8.0.');
@@ -365,9 +368,8 @@ class NativeSessionStorageTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    /**
-     * @group legacy
-     */
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testPassingDeprecatedOptions()
     {
         $this->expectUserDeprecationMessage('Since symfony/http-foundation 7.2: NativeSessionStorage\'s "sid_length" option is deprecated and will be ignored in Symfony 8.0.');

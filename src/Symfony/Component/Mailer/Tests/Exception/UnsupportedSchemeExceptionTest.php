@@ -11,8 +11,11 @@
 
 namespace Symfony\Component\Mailer\Tests\Exception;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bridge\PhpUnit\ClassExistsMock;
+use Symfony\Component\Mailer\Bridge\AhaSend\Transport\AhaSendTransportFactory;
 use Symfony\Component\Mailer\Bridge\Amazon\Transport\SesTransportFactory;
 use Symfony\Component\Mailer\Bridge\Azure\Transport\AzureTransportFactory;
 use Symfony\Component\Mailer\Bridge\Brevo\Transport\BrevoTransportFactory;
@@ -34,15 +37,14 @@ use Symfony\Component\Mailer\Bridge\Sweego\Transport\SweegoTransportFactory;
 use Symfony\Component\Mailer\Exception\UnsupportedSchemeException;
 use Symfony\Component\Mailer\Transport\Dsn;
 
-/**
- * @runTestsInSeparateProcesses
- */
+#[RunTestsInSeparateProcesses]
 final class UnsupportedSchemeExceptionTest extends TestCase
 {
     public static function setUpBeforeClass(): void
     {
         ClassExistsMock::register(__CLASS__);
         ClassExistsMock::withMockedClasses([
+            AhaSendTransportFactory::class => false,
             AzureTransportFactory::class => false,
             BrevoTransportFactory::class => false,
             GmailTransportFactory::class => false,
@@ -64,9 +66,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
         ]);
     }
 
-    /**
-     * @dataProvider messageWhereSchemeIsPartOfSchemeToPackageMapProvider
-     */
+    #[DataProvider('messageWhereSchemeIsPartOfSchemeToPackageMapProvider')]
     public function testMessageWhereSchemeIsPartOfSchemeToPackageMap(string $scheme, string $package)
     {
         $dsn = new Dsn($scheme, 'localhost');
@@ -79,6 +79,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
 
     public static function messageWhereSchemeIsPartOfSchemeToPackageMapProvider(): \Generator
     {
+        yield ['ahasend', 'symfony/aha-send-mailer'];
         yield ['azure', 'symfony/azure-mailer'];
         yield ['brevo', 'symfony/brevo-mailer'];
         yield ['gmail', 'symfony/google-mailer'];
@@ -99,9 +100,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
         yield ['sweego', 'symfony/sweego-mailer'];
     }
 
-    /**
-     * @dataProvider messageWhereSchemeIsNotPartOfSchemeToPackageMapProvider
-     */
+    #[DataProvider('messageWhereSchemeIsNotPartOfSchemeToPackageMapProvider')]
     public function testMessageWhereSchemeIsNotPartOfSchemeToPackageMap(string $expected, Dsn $dsn, ?string $name, array $supported)
     {
         $this->assertSame(

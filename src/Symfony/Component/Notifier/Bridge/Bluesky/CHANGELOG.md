@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+7.3
+---
+
+ * Add option to attach a website preview card
+ * Add `cid` info into returned `SentMessage`
+
 7.2
 ---
 

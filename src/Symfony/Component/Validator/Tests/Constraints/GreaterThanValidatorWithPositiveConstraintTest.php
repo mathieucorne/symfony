@@ -11,6 +11,9 @@
 
 namespace Symfony\Component\Validator\Tests\Constraints;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\Constraints\GreaterThanValidator;
 use Symfony\Component\Validator\Constraints\Positive;
@@ -58,6 +61,8 @@ class GreaterThanValidatorWithPositiveConstraintTest extends AbstractComparisonV
         ];
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testThrowsConstraintExceptionIfPropertyPath()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -66,6 +71,8 @@ class GreaterThanValidatorWithPositiveConstraintTest extends AbstractComparisonV
         return new Positive(['propertyPath' => 'field']);
     }
 
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
     public function testThrowsConstraintExceptionIfValue()
     {
         $this->expectException(ConstraintDefinitionException::class);
@@ -74,9 +81,7 @@ class GreaterThanValidatorWithPositiveConstraintTest extends AbstractComparisonV
         return new Positive(['value' => 0]);
     }
 
-    /**
-     * @dataProvider provideInvalidConstraintOptions
-     */
+    #[DataProvider('provideInvalidConstraintOptions')]
     public function testThrowsConstraintExceptionIfNoValueOrPropertyPath($options)
     {
         $this->markTestSkipped('Value option always set for Positive constraint.');
@@ -97,9 +102,7 @@ class GreaterThanValidatorWithPositiveConstraintTest extends AbstractComparisonV
         $this->markTestSkipped('PropertyPath option is not used in Positive constraint');
     }
 
-    /**
-     * @dataProvider provideValidComparisonsToPropertyPath
-     */
+    #[DataProvider('provideValidComparisonsToPropertyPath')]
     public function testValidComparisonToPropertyPath($comparedValue)
     {
         $this->markTestSkipped('PropertyPath option is not used in Positive constraint');

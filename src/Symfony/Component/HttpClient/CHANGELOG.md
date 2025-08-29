@@ -1,6 +1,17 @@
 CHANGELOG
 =========
 
+7.4
+---
+
+ * Deprecate using amphp/http-client < 5
+
+7.3
+---
+
+ * Add IPv6 support to `NativeHttpClient`
+ * Allow using HTTP/3 with the `CurlHttpClient`
+
 7.2
 ---
 

@@ -28,6 +28,9 @@ class SweegoRequestParserTest extends AbstractRequestParserTestCase
     {
         return Request::create('/', 'POST', [], [], [], [
             'Content-Type' => 'application/json',
+            'HTTP_webhook-id' => 'id',
+            'HTTP_webhook-timestamp' => 'timestamp',
+            'HTTP_webhook-signature' => 'signature',
         ], $payload);
     }
 }

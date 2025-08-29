@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\VarExporter\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\VarDumper\Test\VarDumperTestTrait;
 use Symfony\Component\VarExporter\Exception\ClassNotFoundException;
@@ -39,9 +40,7 @@ class VarExporterTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider provideFailingSerialization
-     */
+    #[DataProvider('provideFailingSerialization')]
     public function testFailingSerialization($value)
     {
         $this->expectException(NotInstantiableTypeException::class);
@@ -77,9 +76,7 @@ class VarExporterTest extends TestCase
         yield [$a];
     }
 
-    /**
-     * @dataProvider provideExport
-     */
+    #[DataProvider('provideExport')]
     public function testExport(string $testName, $value, bool $staticValueExpected = false)
     {
         $dumpedValue = $this->getDump($value);
@@ -464,19 +461,33 @@ class __UnserializeButNo__Serialize
     }
 }
 
-class __SerializeButNo__Unserialize
+class ParentOf__SerializeButNo__Unserialize
 {
-    public $foo;
+    private $foo = 'foo';
+
+    public function getFoo()
+    {
+        return $this->foo;
+    }
+}
+
+class __SerializeButNo__Unserialize extends ParentOf__SerializeButNo__Unserialize
+{
+    public $baz;
+    private $bar;
 
     public function __construct()
     {
-        $this->foo = 'ccc';
+        $this->baz = 'ccc';
+        $this->bar = 'ddd';
     }
 
     public function __serialize(): array
     {
         return [
-            'foo' => $this->foo,
+            'foo' => $this->getFoo(),
+            'baz' => $this->baz,
+            'bar' => $this->bar,
         ];
     }
 }

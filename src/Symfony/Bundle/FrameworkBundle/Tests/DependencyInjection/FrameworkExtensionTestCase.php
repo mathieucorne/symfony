@@ -11,10 +11,13 @@
 
 namespace Symfony\Bundle\FrameworkBundle\Tests\DependencyInjection;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\DependencyInjection\FrameworkExtension;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
+use Symfony\Bundle\FrameworkBundle\Tests\DependencyInjection\Fixtures\Workflow\Validator\DefinitionValidator;
 use Symfony\Bundle\FrameworkBundle\Tests\Fixtures\Messenger\DummyMessage;
 use Symfony\Bundle\FrameworkBundle\Tests\TestCase;
 use Symfony\Bundle\FullStack;
@@ -57,12 +60,17 @@ use Symfony\Component\HttpClient\ScopingHttpClient;
 use Symfony\Component\HttpClient\ThrottlingHttpClient;
 use Symfony\Component\HttpFoundation\IpUtils;
 use Symfony\Component\HttpKernel\DependencyInjection\LoggerPass;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 use Symfony\Component\HttpKernel\Fragment\FragmentUriGeneratorInterface;
 use Symfony\Component\Lock\Store\SemaphoreStore;
 use Symfony\Component\Messenger\Bridge\AmazonSqs\Transport\AmazonSqsTransportFactory;
 use Symfony\Component\Messenger\Bridge\Amqp\Transport\AmqpTransportFactory;
 use Symfony\Component\Messenger\Bridge\Beanstalkd\Transport\BeanstalkdTransportFactory;
 use Symfony\Component\Messenger\Bridge\Redis\Transport\RedisTransportFactory;
+use Symfony\Component\Messenger\Middleware\DeduplicateMiddleware;
 use Symfony\Component\Messenger\Transport\TransportFactory;
 use Symfony\Component\Notifier\ChatterInterface;
 use Symfony\Component\Notifier\TexterInterface;
@@ -84,11 +92,13 @@ use Symfony\Component\Serializer\Normalizer\TranslatableNormalizer;
 use Symfony\Component\Serializer\Serializer;
 use Symfony\Component\Translation\DependencyInjection\TranslatorPass;
 use Symfony\Component\Translation\LocaleSwitcher;
+use Symfony\Component\Translation\TranslatableMessage;
 use Symfony\Component\Validator\DependencyInjection\AddConstraintValidatorsPass;
 use Symfony\Component\Validator\Validation;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Symfony\Component\Webhook\Client\RequestParser;
 use Symfony\Component\Webhook\Controller\WebhookController;
+use Symfony\Component\Workflow\DependencyInjection\WorkflowValidatorPass;
 use Symfony\Component\Workflow\Exception\InvalidDefinitionException;
 use Symfony\Component\Workflow\Metadata\InMemoryMetadataStore;
 use Symfony\Component\Workflow\WorkflowEvents;
@@ -276,25 +286,20 @@ abstract class FrameworkExtensionTestCase extends TestCase
 
     public function testProfilerCollectSerializerDataEnabled()
     {
-        $container = $this->createContainerFromFile('profiler_collect_serializer_data');
+        $container = $this->createContainerFromFile('profiler');
 
         $this->assertTrue($container->hasDefinition('profiler'));
         $this->assertTrue($container->hasDefinition('serializer.data_collector'));
         $this->assertTrue($container->hasDefinition('debug.serializer'));
     }
 
-    public function testProfilerCollectSerializerDataDefaultDisabled()
-    {
-        $container = $this->createContainerFromFile('profiler');
-
-        $this->assertTrue($container->hasDefinition('profiler'));
-        $this->assertFalse($container->hasDefinition('serializer.data_collector'));
-        $this->assertFalse($container->hasDefinition('debug.serializer'));
-    }
-
     public function testWorkflows()
     {
-        $container = $this->createContainerFromFile('workflows');
+        DefinitionValidator::$called = false;
+
+        $container = $this->createContainerFromFile('workflows', compile: false);
+        $container->addCompilerPass(new WorkflowValidatorPass());
+        $container->compile();
 
         $this->assertTrue($container->hasDefinition('workflow.article'), 'Workflow is registered as a service');
         $this->assertSame('workflow.abstract', $container->getDefinition('workflow.article')->getParent());
@@ -317,6 +322,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         ], $tags['workflow'][0]['metadata'] ?? null);
 
         $this->assertTrue($container->hasDefinition('workflow.article.definition'), 'Workflow definition is registered as a service');
+        $this->assertTrue(DefinitionValidator::$called, 'DefinitionValidator is called');
 
         $workflowDefinition = $container->getDefinition('workflow.article.definition');
 
@@ -389,7 +395,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $transitionsMetadata = $metadataStoreDefinition->getArgument(2);
         $this->assertSame(\SplObjectStorage::class, $transitionsMetadata->getClass());
         $transitionsMetadataCall = $transitionsMetadata->getMethodCalls()[0];
-        $this->assertSame('attach', $transitionsMetadataCall[0]);
+        $this->assertSame('offsetSet', $transitionsMetadataCall[0]);
         $params = $transitionsMetadataCall[1];
         $this->assertCount(2, $params);
         $this->assertInstanceOf(Reference::class, $params[0]);
@@ -410,7 +416,9 @@ abstract class FrameworkExtensionTestCase extends TestCase
     {
         $this->expectException(InvalidDefinitionException::class);
         $this->expectExceptionMessage('A transition from a place/state must have an unique name. Multiple transitions named "go" from place/state "first" were found on StateMachine "my_workflow".');
-        $this->createContainerFromFile('workflow_not_valid');
+        $container = $this->createContainerFromFile('workflow_not_valid', compile: false);
+        $container->addCompilerPass(new WorkflowValidatorPass());
+        $container->compile();
     }
 
     public function testWorkflowCannotHaveBothSupportsAndSupportStrategy()
@@ -596,8 +604,8 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $definition = $container->getDefinition('debug.error_handler_configurator');
         $this->assertEquals(new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE), $definition->getArgument(0));
         $this->assertSame([
-            \E_NOTICE => \Psr\Log\LogLevel::ERROR,
-            \E_WARNING => \Psr\Log\LogLevel::ERROR,
+            \E_NOTICE => LogLevel::ERROR,
+            \E_WARNING => LogLevel::ERROR,
         ], $definition->getArgument(1));
     }
 
@@ -608,31 +616,35 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $configuration = $container->getDefinition('exception_listener')->getArgument(3);
 
         $this->assertSame([
-            \Symfony\Component\HttpKernel\Exception\BadRequestHttpException::class,
-            \Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class,
-            \Symfony\Component\HttpKernel\Exception\ConflictHttpException::class,
-            \Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException::class,
+            BadRequestHttpException::class,
+            NotFoundHttpException::class,
+            ConflictHttpException::class,
+            ServiceUnavailableHttpException::class,
         ], array_keys($configuration));
 
         $this->assertEqualsCanonicalizing([
+            'log_channel' => null,
             'log_level' => 'info',
             'status_code' => 422,
-        ], $configuration[\Symfony\Component\HttpKernel\Exception\BadRequestHttpException::class]);
+        ], $configuration[BadRequestHttpException::class]);
 
         $this->assertEqualsCanonicalizing([
+            'log_channel' => null,
             'log_level' => 'info',
             'status_code' => null,
-        ], $configuration[\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class]);
+        ], $configuration[NotFoundHttpException::class]);
 
         $this->assertEqualsCanonicalizing([
+            'log_channel' => null,
             'log_level' => 'info',
             'status_code' => null,
-        ], $configuration[\Symfony\Component\HttpKernel\Exception\ConflictHttpException::class]);
+        ], $configuration[ConflictHttpException::class]);
 
         $this->assertEqualsCanonicalizing([
+            'log_channel' => null,
             'log_level' => null,
             'status_code' => 500,
-        ], $configuration[\Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException::class]);
+        ], $configuration[ServiceUnavailableHttpException::class]);
     }
 
     public function testRouter()
@@ -797,7 +809,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
             \ARRAY_FILTER_USE_KEY
         );
 
-        $this->assertEmpty($messengerDefinitions);
+        $this->assertSame([], $messengerDefinitions);
         $this->assertFalse($container->hasDefinition('console.command.messenger_consume_messages'));
         $this->assertFalse($container->hasDefinition('console.command.messenger_debug'));
         $this->assertFalse($container->hasDefinition('console.command.messenger_stop_workers'));
@@ -1057,9 +1069,9 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->assertSame(['enable_max_depth' => true], $serializerTransportDefinition->getArgument(2));
     }
 
-    public function testMessengerWithMultipleBuses()
+    public function testMessengerWithMultipleBusesWithoutDeduplicateMiddleware()
     {
-        $container = $this->createContainerFromFile('messenger_multiple_buses');
+        $container = $this->createContainerFromFile('messenger_multiple_buses_without_deduplicate_middleware');
 
         $this->assertTrue($container->has('messenger.bus.commands'));
         $this->assertSame([], $container->getDefinition('messenger.bus.commands')->getArgument(0));
@@ -1113,6 +1125,48 @@ abstract class FrameworkExtensionTestCase extends TestCase
             ['id' => 'send_message', 'arguments' => [true]],
             ['id' => 'handle_message', 'arguments' => [false]],
         ], $container->getParameter('messenger.bus.events.middleware'));
+    }
+
+    public function testMessengerWithMultipleBusesWithDeduplicateMiddleware()
+    {
+        if (!class_exists(DeduplicateMiddleware::class)) {
+            $this->markTestSkipped('DeduplicateMiddleware not available.');
+        }
+
+        $container = $this->createContainerFromFile('messenger_multiple_buses_with_deduplicate_middleware');
+
+        $this->assertTrue($container->has('messenger.bus.commands'));
+        $this->assertSame([], $container->getDefinition('messenger.bus.commands')->getArgument(0));
+        $this->assertEquals([
+            ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.commands']],
+            ['id' => 'reject_redelivered_message_middleware'],
+            ['id' => 'dispatch_after_current_bus'],
+            ['id' => 'failed_message_processing_middleware'],
+            ['id' => 'deduplicate_middleware'],
+            ['id' => 'send_message', 'arguments' => [true]],
+            ['id' => 'handle_message', 'arguments' => [false]],
+        ], $container->getParameter('messenger.bus.commands.middleware'));
+        $this->assertTrue($container->has('messenger.bus.events'));
+        $this->assertSame([], $container->getDefinition('messenger.bus.events')->getArgument(0));
+        $this->assertEquals([
+            ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.events']],
+            ['id' => 'reject_redelivered_message_middleware'],
+            ['id' => 'dispatch_after_current_bus'],
+            ['id' => 'failed_message_processing_middleware'],
+            ['id' => 'deduplicate_middleware'],
+            ['id' => 'with_factory', 'arguments' => ['foo', true, ['bar' => 'baz']]],
+            ['id' => 'send_message', 'arguments' => [true]],
+            ['id' => 'handle_message', 'arguments' => [false]],
+        ], $container->getParameter('messenger.bus.events.middleware'));
+        $this->assertTrue($container->has('messenger.bus.queries'));
+        $this->assertSame([], $container->getDefinition('messenger.bus.queries')->getArgument(0));
+        $this->assertEquals([
+            ['id' => 'send_message', 'arguments' => []],
+            ['id' => 'handle_message', 'arguments' => []],
+        ], $container->getParameter('messenger.bus.queries.middleware'));
+
+        $this->assertTrue($container->hasAlias('messenger.default_bus'));
+        $this->assertSame('messenger.bus.commands', (string) $container->getAlias('messenger.default_bus'));
     }
 
     public function testMessengerMiddlewareFactoryErroneousFormat()
@@ -1220,6 +1274,36 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $container = $this->createContainerFromFile('translator_cache_dir_disabled');
         $options = $container->getDefinition('translator.default')->getArgument(4);
         $this->assertNull($options['cache_dir']);
+    }
+
+    public function testTranslatorGlobals()
+    {
+        $container = $this->createContainerFromFile('translator_globals');
+
+        $calls = $container->getDefinition('translator.default')->getMethodCalls();
+
+        $this->assertCount(5, $calls);
+        $this->assertSame(
+            ['addGlobalParameter', ['%%app_name%%', 'My application']],
+            $calls[2],
+        );
+        $this->assertSame(
+            ['addGlobalParameter', ['{app_version}', '1.2.3']],
+            $calls[3],
+        );
+        $this->assertEquals(
+            ['addGlobalParameter', ['{url}', new Definition(TranslatableMessage::class, ['url', ['scheme' => 'https://'], 'global'])]],
+            $calls[4],
+        );
+    }
+
+    public function testTranslatorWithoutGlobals()
+    {
+        $container = $this->createContainerFromFile('translator_without_globals');
+
+        $calls = $container->getDefinition('translator.default')->getMethodCalls();
+
+        $this->assertCount(2, $calls);
     }
 
     public function testValidation()
@@ -1517,7 +1601,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $serializerExtractorDefinition = $container->getDefinition('property_info.serializer_extractor');
 
         $this->assertEquals('serializer.mapping.class_metadata_factory', $serializerExtractorDefinition->getArgument(0)->__toString());
-        $this->assertTrue(!$serializerExtractorDefinition->isPublic() || $serializerExtractorDefinition->isPrivate());
+        $this->assertTrue($serializerExtractorDefinition->isPrivate());
         $tag = $serializerExtractorDefinition->getTag('property_info.list_extractor');
         $this->assertEquals(['priority' => -999], $tag[0]);
     }
@@ -1717,6 +1801,14 @@ abstract class FrameworkExtensionTestCase extends TestCase
     {
         $container = $this->createContainerFromFile('property_info');
         $this->assertTrue($container->has('property_info'));
+        $this->assertFalse($container->has('property_info.constructor_extractor'));
+    }
+
+    public function testPropertyInfoWithConstructorExtractorEnabled()
+    {
+        $container = $this->createContainerFromFile('property_info_with_constructor_extractor');
+        $this->assertTrue($container->has('property_info'));
+        $this->assertTrue($container->has('property_info.constructor_extractor'));
     }
 
     public function testPropertyInfoCacheActivated()
@@ -1848,9 +1940,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         }
     }
 
-    /**
-     * @dataProvider appRedisTagAwareConfigProvider
-     */
+    #[DataProvider('appRedisTagAwareConfigProvider')]
     public function testAppRedisTagAwareAdapter(string $configFile)
     {
         $container = $this->createContainerFromFile($configFile);
@@ -1894,9 +1984,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         }
     }
 
-    /**
-     * @dataProvider appRedisTagAwareConfigProvider
-     */
+    #[DataProvider('appRedisTagAwareConfigProvider')]
     public function testCacheTaggableTagAppliedToRedisAwareAppPool(string $configFile)
     {
         $container = $this->createContainerFromFile($configFile);
@@ -1931,7 +2019,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
 
         $container = $this->createContainer(['kernel.debug' => false]);
         (new FrameworkExtension())->load([['annotations' => false, 'http_method_override' => false, 'handle_all_throwables' => true, 'php_errors' => ['log' => true]]], $container);
-        $this->assertEmpty($container->getDefinition('config_cache_factory')->getArguments());
+        $this->assertSame([], $container->getDefinition('config_cache_factory')->getArguments());
     }
 
     public function testLoggerAwareRegistration()
@@ -2136,9 +2224,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider provideMailer
-     */
+    #[DataProvider('provideMailer')]
     public function testMailer(string $configFile, array $expectedTransports, array $expectedRecipients, array $expectedAllowedRecipients)
     {
         $container = $this->createContainerFromFile($configFile);
@@ -2539,6 +2625,20 @@ abstract class FrameworkExtensionTestCase extends TestCase
         self::assertTrue($container->hasDefinition('semaphore.default.factory'));
         $storeDef = $container->getDefinition($container->getDefinition('semaphore.default.factory')->getArgument(0));
         self::assertEquals(new Reference('my_service'), $storeDef->getArgument(0));
+    }
+
+    public function testJsonStreamerEnabled()
+    {
+        $container = $this->createContainerFromFile('json_streamer');
+        $this->assertTrue($container->has('json_streamer.stream_writer'));
+    }
+
+    public function testObjectMapperEnabled()
+    {
+        $container = $this->createContainerFromClosure(function (ContainerBuilder $container) {
+            $container->loadFromExtension('framework', []);
+        });
+        $this->assertTrue($container->has('object_mapper'));
     }
 
     protected function createContainer(array $data = [])

@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\Notifier\Bridge\Bluesky\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -274,13 +275,14 @@ final class BlueskyTransportTest extends TransportTestCase
         $this->assertEquals($expected, $this->parseFacets($input));
     }
 
-    public function testWithMedia()
+    #[DataProvider('sendMessageWithEmbedDataProvider')]
+    public function testWithEmbed(BlueskyOptions $blueskyOptions, string $expectedJsonResponse)
     {
         // realistic sample values taken from https://docs.bsky.app/docs/advanced-guides/posts#post-record-structure
         $recordUri = 'at://did:plc:u5cwb2mwiv2bfq53cjufe6yn/app.bsky.feed.post/3k4duaz5vfs2b';
         $recordCid = 'bafyreibjifzpqj6o6wcq3hejh7y4z4z2vmiklkvykc57tw3pcbx3kxifpm';
 
-        $transport = $this->createTransport(new MockHttpClient((function () use ($recordUri, $recordCid) {
+        $transport = $this->createTransport(new MockHttpClient((function () use ($recordUri, $recordCid, $expectedJsonResponse) {
             yield function (string $method, string $url, array $options) {
                 $this->assertSame('POST', $method);
                 $this->assertSame('https://bsky.social/xrpc/com.atproto.server.createSession', $url);
@@ -303,19 +305,17 @@ final class BlueskyTransportTest extends TransportTestCase
                 ]]);
             };
 
-            yield function (string $method, string $url, array $options) use ($recordUri, $recordCid) {
+            yield function (string $method, string $url, array $options) use ($recordUri, $recordCid, $expectedJsonResponse) {
                 $this->assertSame('POST', $method);
                 $this->assertSame('https://bsky.social/xrpc/com.atproto.repo.createRecord', $url);
                 $this->assertArrayHasKey('authorization', $options['normalized_headers']);
-                $this->assertSame('{"repo":null,"collection":"app.bsky.feed.post","record":{"$type":"app.bsky.feed.post","text":"Hello World!","createdAt":"2024-04-28T08:40:17.000000Z","embed":{"$type":"app.bsky.embed.images","images":[{"alt":"A fixture","image":{"$type":"blob","ref":{"$link":"bafkreibabalobzn6cd366ukcsjycp4yymjymgfxcv6xczmlgpemzkz3cfa"},"mimeType":"image\/png","size":760898}}]}}}', $options['body']);
+                $this->assertSame($expectedJsonResponse, $options['body']);
 
                 return new JsonMockResponse(['uri' => $recordUri, 'cid' => $recordCid]);
             };
         })()));
 
-        $options = (new BlueskyOptions())
-            ->attachMedia(new File(__DIR__.'/fixtures.gif'), 'A fixture');
-        $result = $transport->send(new ChatMessage('Hello World!', $options));
+        $result = $transport->send(new ChatMessage('Hello World!', $blueskyOptions));
 
         $this->assertSame($recordUri, $result->getMessageId());
     }
@@ -337,6 +337,35 @@ final class BlueskyTransportTest extends TransportTestCase
         $message = $transport->send(new ChatMessage('Hello!'));
 
         $this->assertSame($recordUri, $message->getMessageId());
+        $this->assertSame($recordCid, $message->getInfo('cid'));
+    }
+
+    public static function sendMessageWithEmbedDataProvider(): iterable
+    {
+        yield 'With media' => [
+            'blueskyOptions' => (new BlueskyOptions())->attachMedia(new File(__DIR__.'/fixtures.gif'), 'A fixture'),
+            'expectedJsonResponse' => '{"repo":null,"collection":"app.bsky.feed.post","record":{"$type":"app.bsky.feed.post","text":"Hello World!","createdAt":"2024-04-28T08:40:17.000000Z","embed":{"$type":"app.bsky.embed.images","images":[{"alt":"A fixture","image":{"$type":"blob","ref":{"$link":"bafkreibabalobzn6cd366ukcsjycp4yymjymgfxcv6xczmlgpemzkz3cfa"},"mimeType":"image\/png","size":760898}}]}}}',
+        ];
+
+        yield 'With website preview card and all optional informations' => [
+            'blueskyOptions' => (new BlueskyOptions())
+                ->attachCard(
+                    'https://example.com',
+                    new File(__DIR__.'/fixtures.gif'),
+                    'Fork me im famous',
+                    'Click here to go to website!'
+                ),
+            'expectedJsonResponse' => '{"repo":null,"collection":"app.bsky.feed.post","record":{"$type":"app.bsky.feed.post","text":"Hello World!","createdAt":"2024-04-28T08:40:17.000000Z","embed":{"$type":"app.bsky.embed.external","external":{"uri":"https:\/\/example.com","title":"Fork me im famous","description":"Click here to go to website!","thumb":{"$type":"blob","ref":{"$link":"bafkreibabalobzn6cd366ukcsjycp4yymjymgfxcv6xczmlgpemzkz3cfa"},"mimeType":"image\/png","size":760898}}}}}',
+        ];
+
+        yield 'With website preview card and minimal information' => [
+            'blueskyOptions' => (new BlueskyOptions())
+                ->attachCard(
+                    'https://example.com',
+                    new File(__DIR__.'/fixtures.gif')
+                ),
+            'expectedJsonResponse' => '{"repo":null,"collection":"app.bsky.feed.post","record":{"$type":"app.bsky.feed.post","text":"Hello World!","createdAt":"2024-04-28T08:40:17.000000Z","embed":{"$type":"app.bsky.embed.external","external":{"uri":"https:\/\/example.com","title":"","description":"","thumb":{"$type":"blob","ref":{"$link":"bafkreibabalobzn6cd366ukcsjycp4yymjymgfxcv6xczmlgpemzkz3cfa"},"mimeType":"image\/png","size":760898}}}}}',
+        ];
     }
 
     /**

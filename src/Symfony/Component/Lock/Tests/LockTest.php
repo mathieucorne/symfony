@@ -11,6 +11,8 @@
 
 namespace Symfony\Component\Lock\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
@@ -397,9 +399,7 @@ class LockTest extends TestCase
         $this->assertSame([['debug', 'Successfully released the "{resource}" lock.', ['resource' => $key]]], $logger->logs());
     }
 
-    /**
-     * @dataProvider provideExpiredDates
-     */
+    #[DataProvider('provideExpiredDates')]
     public function testExpiration($ttls, $expected)
     {
         $key = new Key(__METHOD__);
@@ -416,9 +416,7 @@ class LockTest extends TestCase
         $this->assertSame($expected, $lock->isExpired());
     }
 
-    /**
-     * @dataProvider provideExpiredDates
-     */
+    #[DataProvider('provideExpiredDates')]
     public function testExpirationStoreInterface($ttls, $expected)
     {
         $key = new Key(__METHOD__);
@@ -462,9 +460,7 @@ class LockTest extends TestCase
         $this->assertTrue($lock->acquireRead(false));
     }
 
-    /**
-     * @group time-sensitive
-     */
+    #[Group('time-sensitive')]
     public function testAcquireReadTwiceWithExpiration()
     {
         $key = new Key(__METHOD__);
@@ -476,18 +472,18 @@ class LockTest extends TestCase
             public function save(Key $key): void
             {
                 $key->reduceLifetime($this->initialTtl);
-                $this->keys[spl_object_hash($key)] = $key;
+                $this->keys[spl_object_id($key)] = $key;
                 $this->checkNotExpired($key);
             }
 
             public function delete(Key $key): void
             {
-                unset($this->keys[spl_object_hash($key)]);
+                unset($this->keys[spl_object_id($key)]);
             }
 
             public function exists(Key $key): bool
             {
-                return isset($this->keys[spl_object_hash($key)]);
+                return isset($this->keys[spl_object_id($key)]);
             }
 
             public function putOffExpiration(Key $key, $ttl): void
@@ -506,9 +502,7 @@ class LockTest extends TestCase
         $lock->release();
     }
 
-    /**
-     * @group time-sensitive
-     */
+    #[Group('time-sensitive')]
     public function testAcquireTwiceWithExpiration()
     {
         $key = new Key(__METHOD__);
@@ -520,18 +514,18 @@ class LockTest extends TestCase
             public function save(Key $key): void
             {
                 $key->reduceLifetime($this->initialTtl);
-                $this->keys[spl_object_hash($key)] = $key;
+                $this->keys[spl_object_id($key)] = $key;
                 $this->checkNotExpired($key);
             }
 
             public function delete(Key $key): void
             {
-                unset($this->keys[spl_object_hash($key)]);
+                unset($this->keys[spl_object_id($key)]);
             }
 
             public function exists(Key $key): bool
             {
-                return isset($this->keys[spl_object_hash($key)]);
+                return isset($this->keys[spl_object_id($key)]);
             }
 
             public function putOffExpiration(Key $key, $ttl): void
