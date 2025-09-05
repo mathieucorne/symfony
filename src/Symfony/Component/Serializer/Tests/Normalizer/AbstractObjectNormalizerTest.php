@@ -573,7 +573,7 @@ class AbstractObjectNormalizerTest extends TestCase
     }
 
     /**
-     * @return array<array{0: mixed, 1: bool}>
+     * @return iterable<array{0: mixed, 1: bool}>
      */
     public static function provideInvalidDiscriminatorTypes(): iterable
     {

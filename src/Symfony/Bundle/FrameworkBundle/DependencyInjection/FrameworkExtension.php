@@ -60,6 +60,7 @@ use Symfony\Component\Console\DataCollector\CommandDataCollector;
 use Symfony\Component\Console\Debug\CliRequest;
 use Symfony\Component\Console\Messenger\RunCommandMessageHandler;
 use Symfony\Component\DependencyInjection\Alias;
+use Symfony\Component\DependencyInjection\Argument\ArgumentTrait;
 use Symfony\Component\DependencyInjection\Argument\IteratorArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\ChildDefinition;
@@ -83,6 +84,7 @@ use Symfony\Component\ExpressionLanguage\ExpressionLanguage;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\Finder\Glob;
+use Symfony\Component\Form\EnumFormTypeGuesser;
 use Symfony\Component\Form\Extension\HtmlSanitizer\Type\TextTypeHtmlSanitizerExtension;
 use Symfony\Component\Form\Form;
 use Symfony\Component\Form\FormTypeExtensionInterface;
@@ -186,9 +188,10 @@ use Symfony\Component\Semaphore\PersistingStoreInterface as SemaphoreStoreInterf
 use Symfony\Component\Semaphore\Semaphore;
 use Symfony\Component\Semaphore\SemaphoreFactory;
 use Symfony\Component\Semaphore\Store\StoreFactory as SemaphoreStoreFactory;
+use Symfony\Component\Serializer\Attribute as SerializerMapping;
+use Symfony\Component\Serializer\DependencyInjection\AttributeMetadataPass as SerializerAttributeMetadataPass;
 use Symfony\Component\Serializer\Encoder\DecoderInterface;
 use Symfony\Component\Serializer\Encoder\EncoderInterface;
-use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
 use Symfony\Component\Serializer\Mapping\Loader\XmlFileLoader;
 use Symfony\Component\Serializer\Mapping\Loader\YamlFileLoader;
 use Symfony\Component\Serializer\NameConverter\SnakeCaseToCamelCaseNameConverter;
@@ -215,7 +218,9 @@ use Symfony\Component\Uid\Factory\UuidFactory;
 use Symfony\Component\Uid\UuidV4;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\Constraints\ExpressionLanguageProvider;
+use Symfony\Component\Validator\Constraints\Traverse;
 use Symfony\Component\Validator\ConstraintValidatorInterface;
+use Symfony\Component\Validator\DependencyInjection\AttributeMetadataPass as ValidatorAttributeMetadataPass;
 use Symfony\Component\Validator\GroupProviderInterface;
 use Symfony\Component\Validator\Mapping\Loader\PropertyInfoLoader;
 use Symfony\Component\Validator\ObjectInitializerInterface;
@@ -880,6 +885,10 @@ class FrameworkExtension extends Extension
     private function registerFormConfiguration(array $config, ContainerBuilder $container, PhpFileLoader $loader): void
     {
         $loader->load('form.php');
+
+        if (!class_exists(EnumFormTypeGuesser::class)) {
+            $container->removeDefinition('form.type_guesser.enum_type');
+        }
 
         if (null === $config['form']['csrf_protection']['enabled']) {
             $this->writeConfigEnabled('form.csrf_protection', $config['csrf_protection']['enabled'], $config['form']['csrf_protection']);
@@ -1796,22 +1805,31 @@ class FrameworkExtension extends Extension
         $files = ['xml' => [], 'yml' => []];
         $this->registerValidatorMapping($container, $config, $files);
 
-        if (!empty($files['xml'])) {
+        if ($files['xml']) {
             $validatorBuilder->addMethodCall('addXmlMappings', [$files['xml']]);
         }
 
-        if (!empty($files['yml'])) {
+        if ($files['yml']) {
             $validatorBuilder->addMethodCall('addYamlMappings', [$files['yml']]);
         }
 
         $definition = $container->findDefinition('validator.email');
         $definition->replaceArgument(0, $config['email_validation_mode']);
 
-        if (\array_key_exists('enable_attributes', $config) && $config['enable_attributes']) {
+        // When attributes are disabled, it means from runtime-discovery only; autoconfiguration should still happen.
+        // And when runtime-discovery of attributes is enabled, we can skip compile-time autoconfiguration in debug mode.
+        if (class_exists(ValidatorAttributeMetadataPass::class) && (!($config['enable_attributes'] ?? false) || !$container->getParameter('kernel.debug')) && trait_exists(ArgumentTrait::class)) {
+            // The $reflector argument hints at where the attribute could be used
+            $container->registerAttributeForAutoconfiguration(Constraint::class, function (ChildDefinition $definition, Constraint $attribute, \ReflectionClass|\ReflectionMethod|\ReflectionProperty $reflector) {
+                $definition->addTag('validator.attribute_metadata');
+            });
+        }
+
+        if ($config['enable_attributes'] ?? false) {
             $validatorBuilder->addMethodCall('enableAttributeMapping');
         }
 
-        if (\array_key_exists('static_method', $config) && $config['static_method']) {
+        if ($config['static_method'] ?? false) {
             foreach ($config['static_method'] as $methodName) {
                 $validatorBuilder->addMethodCall('addMethodMapping', [$methodName]);
             }
@@ -1850,9 +1868,11 @@ class FrameworkExtension extends Extension
             $files['yaml' === $extension ? 'yml' : $extension][] = $path;
         };
 
-        if (ContainerBuilder::willBeAvailable('symfony/form', Form::class, ['symfony/framework-bundle', 'symfony/validator'])) {
-            $reflClass = new \ReflectionClass(Form::class);
-            $fileRecorder('xml', \dirname($reflClass->getFileName()).'/Resources/config/validation.xml');
+        if (!ContainerBuilder::willBeAvailable('symfony/form', Form::class, ['symfony/framework-bundle', 'symfony/validator'])) {
+            $container->removeDefinition('validator.form.attribute_metadata');
+        } elseif (!($r = new \ReflectionClass(Form::class))->getAttributes(Traverse::class) || !class_exists(ValidatorAttributeMetadataPass::class)) {
+            // BC with symfony/form & symfony/validator < 7.4
+            $fileRecorder('xml', \dirname($r->getFileName()).'/Resources/config/validation.xml');
         }
 
         foreach ($container->getParameter('kernel.bundles_metadata') as $bundle) {
@@ -2055,10 +2075,38 @@ class FrameworkExtension extends Extension
         }
 
         $serializerLoaders = [];
-        if (isset($config['enable_attributes']) && $config['enable_attributes']) {
-            $attributeLoader = new Definition(AttributeLoader::class);
 
-            $serializerLoaders[] = $attributeLoader;
+        // When attributes are disabled, it means from runtime-discovery only; autoconfiguration should still happen.
+        // And when runtime-discovery of attributes is enabled, we can skip compile-time autoconfiguration in debug mode.
+        if (class_exists(SerializerAttributeMetadataPass::class) && (!($config['enable_attributes'] ?? false) || !$container->getParameter('kernel.debug'))) {
+            // The $reflector argument hints at where the attribute could be used
+            $configurator = function (ChildDefinition $definition, object $attribute, \ReflectionClass|\ReflectionMethod|\ReflectionProperty $reflector) {
+                $definition->addTag('serializer.attribute_metadata');
+            };
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\Context::class, $configurator);
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\Groups::class, $configurator);
+
+            $configurator = function (ChildDefinition $definition, object $attribute, \ReflectionMethod|\ReflectionProperty $reflector) {
+                $definition->addTag('serializer.attribute_metadata');
+            };
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\Ignore::class, $configurator);
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\MaxDepth::class, $configurator);
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\SerializedName::class, $configurator);
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\SerializedPath::class, $configurator);
+
+            $container->registerAttributeForAutoconfiguration(SerializerMapping\DiscriminatorMap::class, function (ChildDefinition $definition) {
+                $definition->addTag('serializer.attribute_metadata');
+            });
+        }
+
+        if (($config['enable_attributes'] ?? false) || class_exists(SerializerAttributeMetadataPass::class)) {
+            $serializerLoaders[] = new Reference('serializer.mapping.attribute_loader');
+
+            $container->getDefinition('serializer.mapping.attribute_loader')
+                ->replaceArgument(0, $config['enable_attributes'] ?? false);
+        } else {
+            // BC with symfony/serializer < 7.4
+            $container->removeDefinition('serializer.mapping.attribute_services_loader');
         }
 
         $fileRecorder = function ($extension, $path) use (&$serializerLoaders) {
@@ -2095,7 +2143,7 @@ class FrameworkExtension extends Extension
         $chainLoader->replaceArgument(0, $serializerLoaders);
         $container->getDefinition('serializer.mapping.cache_warmer')->replaceArgument(0, $serializerLoaders);
 
-        if (isset($config['name_converter']) && $config['name_converter']) {
+        if ($config['name_converter'] ?? false) {
             $container->setParameter('.serializer.name_converter', $config['name_converter']);
             $container->getDefinition('serializer.name_converter.metadata_aware')->setArgument(1, new Reference($config['name_converter']));
         }
