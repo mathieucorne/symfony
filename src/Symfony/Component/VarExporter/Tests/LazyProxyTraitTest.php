@@ -32,7 +32,27 @@ use Symfony\Component\VarExporter\Tests\Fixtures\LazyProxy\TestUnserializeClass;
 use Symfony\Component\VarExporter\Tests\Fixtures\LazyProxy\TestWakeupClass;
 use Symfony\Component\VarExporter\Tests\Fixtures\SimpleObject;
 
-#[RequiresPhp('8.4')]
+$errorHandler = set_error_handler(static function (int $errno, string $errstr) use (&$errorHandler) {
+    if (\E_DEPRECATED === $errno && str_contains($errstr, 'serialize()')) {
+        // We're testing if the component handles deprecated Serializable and __sleep/wakeup implementations well.
+        // This kind of implementation triggers a deprecation warning that we explicitly want to ignore here.
+        return true;
+    }
+
+    return $errorHandler ? $errorHandler(...\func_get_args()) : false;
+});
+
+try {
+    foreach ([
+        TestWakeupClass::class,
+    ] as $class) {
+        class_exists($class);
+    }
+} finally {
+    restore_error_handler();
+}
+
+#[RequiresPhp('>=8.4')]
 class LazyProxyTraitTest extends TestCase
 {
     public function testGetter()
@@ -291,7 +311,7 @@ class LazyProxyTraitTest extends TestCase
         $this->assertSame(234, $object->foo);
     }
 
-    #[RequiresPhp('8.3')]
+    #[RequiresPhp('>=8.3')]
     public function testReinitReadonlyLazyProxy()
     {
         $object = $this->createLazyProxy(ReadOnlyClass::class, fn () => new ConcreteReadOnlyClass(123));
@@ -303,7 +323,7 @@ class LazyProxyTraitTest extends TestCase
         $this->assertSame(234, $object->foo);
     }
 
-    #[RequiresPhp('8.4')]
+    #[RequiresPhp('>=8.4')]
     public function testConcretePropertyHooks()
     {
         $initialized = false;
@@ -330,7 +350,7 @@ class LazyProxyTraitTest extends TestCase
         $this->assertSame(345, $object->backed);
     }
 
-    #[RequiresPhp('8.4')]
+    #[RequiresPhp('>=8.4')]
     public function testAbstractPropertyHooks()
     {
         $initialized = false;
@@ -362,7 +382,7 @@ class LazyProxyTraitTest extends TestCase
         $this->assertTrue($initialized);
     }
 
-    #[RequiresPhp('8.4')]
+    #[RequiresPhp('>=8.4')]
     public function testAsymmetricVisibility()
     {
         $object = $this->createLazyProxy(AsymmetricVisibility::class, function () {

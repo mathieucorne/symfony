@@ -108,6 +108,7 @@ use Symfony\Component\HttpKernel\CacheWarmer\CacheWarmerInterface;
 use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
 use Symfony\Component\HttpKernel\DataCollector\DataCollectorInterface;
 use Symfony\Component\HttpKernel\DependencyInjection\Extension;
+use Symfony\Component\HttpKernel\EventListener\IsSignatureValidAttributeListener;
 use Symfony\Component\HttpKernel\Log\DebugLoggerConfigurator;
 use Symfony\Component\HttpKernel\Profiler\ProfilerStateChecker;
 use Symfony\Component\JsonStreamer\Attribute\JsonStreamable;
@@ -134,6 +135,7 @@ use Symfony\Component\Messenger\EventListener\ResetMemoryUsageListener;
 use Symfony\Component\Messenger\Handler\BatchHandlerInterface;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Middleware\AddDefaultStampsMiddleware;
 use Symfony\Component\Messenger\Middleware\DeduplicateMiddleware;
 use Symfony\Component\Messenger\Middleware\RouterContextMiddleware;
 use Symfony\Component\Messenger\Transport\AmqpExt\AmqpTransportFactory;
@@ -189,6 +191,7 @@ use Symfony\Component\Semaphore\Semaphore;
 use Symfony\Component\Semaphore\SemaphoreFactory;
 use Symfony\Component\Semaphore\Store\StoreFactory as SemaphoreStoreFactory;
 use Symfony\Component\Serializer\Attribute as SerializerMapping;
+use Symfony\Component\Serializer\Attribute\ExtendsSerializationFor;
 use Symfony\Component\Serializer\DependencyInjection\AttributeMetadataPass as SerializerAttributeMetadataPass;
 use Symfony\Component\Serializer\Encoder\DecoderInterface;
 use Symfony\Component\Serializer\Encoder\EncoderInterface;
@@ -216,6 +219,7 @@ use Symfony\Component\TypeInfo\TypeResolver\StringTypeResolver;
 use Symfony\Component\TypeInfo\TypeResolver\TypeResolverInterface;
 use Symfony\Component\Uid\Factory\UuidFactory;
 use Symfony\Component\Uid\UuidV4;
+use Symfony\Component\Validator\Attribute\ExtendsValidationFor;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\Constraints\ExpressionLanguageProvider;
 use Symfony\Component\Validator\Constraints\Traverse;
@@ -284,6 +288,9 @@ class FrameworkExtension extends Extension
 
         if (!class_exists(RunProcessMessageHandler::class)) {
             $container->removeDefinition('process.messenger.process_message_handler');
+        }
+        if (!class_exists(IsSignatureValidAttributeListener::class)) {
+            $container->removeDefinition('controller.is_signature_valid_attribute_listener');
         }
 
         if ($this->hasConsole()) {
@@ -1105,16 +1112,16 @@ class FrameworkExtension extends Extension
             $transitionCounter = 0;
             foreach ($workflow['transitions'] as $transition) {
                 if ('workflow' === $type) {
-                    $transitionDefinition = new Definition(Workflow\Transition::class, [$transition['name'], $transition['from'], $transition['to']]);
                     $transitionId = \sprintf('.%s.transition.%s', $workflowId, $transitionCounter++);
-                    $container->setDefinition($transitionId, $transitionDefinition);
+                    $container->register($transitionId, Workflow\Transition::class)
+                        ->setArguments([$transition['name'], $transition['from'], $transition['to']]);
                     $transitions[] = new Reference($transitionId);
                     if (isset($transition['guard'])) {
-                        $configuration = new Definition(Workflow\EventListener\GuardExpression::class);
-                        $configuration->addArgument(new Reference($transitionId));
-                        $configuration->addArgument($transition['guard']);
                         $eventName = \sprintf('workflow.%s.guard.%s', $name, $transition['name']);
-                        $guardsConfiguration[$eventName][] = $configuration;
+                        $guardsConfiguration[$eventName][] = new Definition(
+                            Workflow\EventListener\GuardExpression::class,
+                            [new Reference($transitionId), $transition['guard']]
+                        );
                     }
                     if ($transition['metadata']) {
                         $transitionsMetadataDefinition->addMethodCall('offsetSet', [
@@ -1125,16 +1132,16 @@ class FrameworkExtension extends Extension
                 } elseif ('state_machine' === $type) {
                     foreach ($transition['from'] as $from) {
                         foreach ($transition['to'] as $to) {
-                            $transitionDefinition = new Definition(Workflow\Transition::class, [$transition['name'], $from, $to]);
                             $transitionId = \sprintf('.%s.transition.%s', $workflowId, $transitionCounter++);
-                            $container->setDefinition($transitionId, $transitionDefinition);
+                            $container->register($transitionId, Workflow\Transition::class)
+                                ->setArguments([$transition['name'], $from, $to]);
                             $transitions[] = new Reference($transitionId);
                             if (isset($transition['guard'])) {
-                                $configuration = new Definition(Workflow\EventListener\GuardExpression::class);
-                                $configuration->addArgument(new Reference($transitionId));
-                                $configuration->addArgument($transition['guard']);
                                 $eventName = \sprintf('workflow.%s.guard.%s', $name, $transition['name']);
-                                $guardsConfiguration[$eventName][] = $configuration;
+                                $guardsConfiguration[$eventName][] = new Definition(
+                                    Workflow\EventListener\GuardExpression::class,
+                                    [new Reference($transitionId), $transition['guard']]
+                                );
                             }
                             if ($transition['metadata']) {
                                 $transitionsMetadataDefinition->addMethodCall('offsetSet', [
@@ -1821,9 +1828,15 @@ class FrameworkExtension extends Extension
         if (class_exists(ValidatorAttributeMetadataPass::class) && (!($config['enable_attributes'] ?? false) || !$container->getParameter('kernel.debug')) && trait_exists(ArgumentTrait::class)) {
             // The $reflector argument hints at where the attribute could be used
             $container->registerAttributeForAutoconfiguration(Constraint::class, function (ChildDefinition $definition, Constraint $attribute, \ReflectionClass|\ReflectionMethod|\ReflectionProperty $reflector) {
-                $definition->addTag('validator.attribute_metadata');
+                $definition->addTag('validator.attribute_metadata')
+                    ->addTag('container.excluded', ['source' => 'because it\'s a validator constraint extension']);
             });
         }
+
+        $container->registerAttributeForAutoconfiguration(ExtendsValidationFor::class, function (ChildDefinition $definition, ExtendsValidationFor $attribute) {
+            $definition->addTag('validator.attribute_metadata', ['for' => $attribute->class])
+                ->addTag('container.excluded', ['source' => 'because it\'s a validator constraint extension']);
+        });
 
         if ($config['enable_attributes'] ?? false) {
             $validatorBuilder->addMethodCall('enableAttributeMapping');
@@ -2165,6 +2178,11 @@ class FrameworkExtension extends Extension
         $container->getDefinition('serializer.normalizer.property')->setArgument(5, $defaultContext);
 
         $container->setParameter('.serializer.named_serializers', $config['named_serializers'] ?? []);
+
+        $container->registerAttributeForAutoconfiguration(ExtendsSerializationFor::class, function (ChildDefinition $definition, ExtendsSerializationFor $attribute) {
+            $definition->addTag('serializer.attribute_metadata', ['for' => $attribute->class])
+                ->addTag('container.excluded', ['source' => 'because it\'s a serializer metadata extension']);
+        });
     }
 
     private function registerJsonStreamerConfiguration(array $config, ContainerBuilder $container, PhpFileLoader $loader): void
@@ -2422,6 +2440,10 @@ class FrameworkExtension extends Extension
                 ['id' => 'handle_message'],
             ],
         ];
+
+        if (class_exists(AddDefaultStampsMiddleware::class)) {
+            array_unshift($defaultMiddleware['before'], ['id' => 'add_default_stamps_middleware']);
+        }
 
         if ($lockEnabled && class_exists(DeduplicateMiddleware::class) && class_exists(LockFactory::class)) {
             $defaultMiddleware['before'][] = ['id' => 'deduplicate_middleware'];

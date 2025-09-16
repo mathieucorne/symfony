@@ -435,6 +435,20 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->createContainerFromFile('workflow_without_support_and_support_strategy');
     }
 
+    public function testWorkflowWithSimplisticPlaceFollowedByComplexPlace()
+    {
+        $container = $this->createContainerFromFile('workflow_with_simplistic_place_follow_by_complex_place_config');
+
+        $this->assertTrue($container->hasDefinition('workflow.article'), 'Workflow is parsed and registered as a service');
+    }
+
+    public function testWorkflowWithComplexPlaceFollowedBySimplisticPlace()
+    {
+        $container = $this->createContainerFromFile('workflow_with_complex_place_follow_by_simplistic_place_config');
+
+        $this->assertTrue($container->hasDefinition('workflow.article'), 'Workflow is parsed and registered as a service');
+    }
+
     public function testWorkflowMultipleTransitionsWithSameName()
     {
         $container = $this->createContainerFromFile('workflow_with_multiple_transitions_with_same_name');
@@ -505,6 +519,26 @@ abstract class FrameworkExtensionTestCase extends TestCase
         ], $container->getDefinition($transitions[4])->getArguments());
     }
 
+    public function testWorkflowEnumPlaces()
+    {
+        $container = $this->createContainerFromFile('workflow_enum_places');
+
+        $workflowDefinition = $container->getDefinition('state_machine.enum.definition');
+        $this->assertSame(['a', 'b', 'c'], $workflowDefinition->getArgument(0));
+        $transitionOne = $container->getDefinition('.state_machine.enum.transition.0');
+        $this->assertSame(['one', 'a', 'b'], $transitionOne->getArguments());
+        $transitionTwo = $container->getDefinition('.state_machine.enum.transition.1');
+        $this->assertSame(['two', 'b', 'c'], $transitionTwo->getArguments());
+    }
+
+    public function testWorkflowGlobPlaces()
+    {
+        $container = $this->createContainerFromFile('workflow_glob_places');
+
+        $workflowDefinition = $container->getDefinition('state_machine.enum.definition');
+        $this->assertSame(['a', 'b', 'c'], $workflowDefinition->getArgument(0));
+    }
+
     public function testWorkflowGuardExpressions()
     {
         $container = $this->createContainerFromFile('workflow_with_guard_expression');
@@ -566,6 +600,27 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $eventsToDispatch = $container->getDefinition('state_machine.my_workflow')->getArgument('index_4');
 
         $this->assertSame([WorkflowEvents::LEAVE, WorkflowEvents::COMPLETED], $eventsToDispatch);
+    }
+
+    public function testWorkflowTransitionsPerformNoDeepMerging()
+    {
+        $container = $this->createContainer(['kernel.charset' => 'UTF-8', 'kernel.secret' => 'secret', 'kernel.runtime_environment' => 'test']);
+        $container->registerExtension(new FrameworkExtension());
+
+        $this->loadFromFile($container, 'workflow_base_config');
+
+        $this->loadFromFile($container, 'workflow_override_config');
+
+        $container->compile();
+
+        $transitions = [];
+
+        foreach ($container->getDefinition('test_workflow')->getArgument(0)->getArgument(1) as $transitionDefinition) {
+            $transitions[] = $transitionDefinition->getArguments();
+        }
+
+        $this->assertCount(1, $transitions);
+        $this->assertSame(['base_transition', ['middle'], ['alternative']], $transitions[0]);
     }
 
     public function testEnabledPhpErrorsConfig()
@@ -1076,6 +1131,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->assertTrue($container->has('messenger.bus.commands'));
         $this->assertSame([], $container->getDefinition('messenger.bus.commands')->getArgument(0));
         $this->assertEquals([
+            ['id' => 'add_default_stamps_middleware'],
             ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.commands']],
             ['id' => 'reject_redelivered_message_middleware'],
             ['id' => 'dispatch_after_current_bus'],
@@ -1086,6 +1142,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->assertTrue($container->has('messenger.bus.events'));
         $this->assertSame([], $container->getDefinition('messenger.bus.events')->getArgument(0));
         $this->assertEquals([
+            ['id' => 'add_default_stamps_middleware'],
             ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.events']],
             ['id' => 'reject_redelivered_message_middleware'],
             ['id' => 'dispatch_after_current_bus'],
@@ -1118,6 +1175,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->assertTrue($container->has('messenger.bus.events'));
         $this->assertSame([], $container->getDefinition('messenger.bus.events')->getArgument(0));
         $this->assertEquals([
+            ['id' => 'add_default_stamps_middleware'],
             ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.events']],
             ['id' => 'reject_redelivered_message_middleware'],
             ['id' => 'dispatch_after_current_bus'],
@@ -1138,6 +1196,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->assertTrue($container->has('messenger.bus.commands'));
         $this->assertSame([], $container->getDefinition('messenger.bus.commands')->getArgument(0));
         $this->assertEquals([
+            ['id' => 'add_default_stamps_middleware'],
             ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.commands']],
             ['id' => 'reject_redelivered_message_middleware'],
             ['id' => 'dispatch_after_current_bus'],
@@ -1149,6 +1208,7 @@ abstract class FrameworkExtensionTestCase extends TestCase
         $this->assertTrue($container->has('messenger.bus.events'));
         $this->assertSame([], $container->getDefinition('messenger.bus.events')->getArgument(0));
         $this->assertEquals([
+            ['id' => 'add_default_stamps_middleware'],
             ['id' => 'add_bus_name_stamp_middleware', 'arguments' => ['messenger.bus.events']],
             ['id' => 'reject_redelivered_message_middleware'],
             ['id' => 'dispatch_after_current_bus'],

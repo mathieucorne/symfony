@@ -16,6 +16,8 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\RequiresPhp;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Serializer\Mapping\AttributeMetadata;
+use Symfony\Component\Serializer\Mapping\ClassMetadata;
 use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
 use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
 use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
@@ -32,6 +34,28 @@ use Symfony\Component\VarExporter\Tests\Fixtures\LazyProxy\AsymmetricVisibility;
 use Symfony\Component\VarExporter\Tests\Fixtures\LazyProxy\Hooked;
 use Symfony\Component\VarExporter\Tests\Fixtures\LazyProxy\HookedWithDefaultValue;
 use Symfony\Component\VarExporter\Tests\Fixtures\SimpleObject;
+
+$errorHandler = set_error_handler(static function (int $errno, string $errstr) use (&$errorHandler) {
+    if (\E_DEPRECATED === $errno && str_contains($errstr, 'serialize()')) {
+        // We're testing if the component handles deprecated Serializable and __sleep/wakeup implementations well.
+        // This kind of implementation triggers a deprecation warning that we explicitly want to ignore here.
+        return true;
+    }
+
+    return $errorHandler ? $errorHandler(...\func_get_args()) : false;
+});
+
+try {
+    foreach ([
+        MagicClass::class,
+        ClassMetadata::class,
+        AttributeMetadata::class,
+    ] as $class) {
+        class_exists($class);
+    }
+} finally {
+    restore_error_handler();
+}
 
 #[IgnoreDeprecations]
 #[Group('legacy')]
@@ -242,7 +266,7 @@ class LegacyLazyGhostTraitTest extends TestCase
         $this->assertSame([123], $proxy->foo);
     }
 
-    #[RequiresPhp('8.3')]
+    #[RequiresPhp('>=8.3')]
     public function testReadOnlyClass()
     {
         $proxy = $this->createLazyGhost(ReadOnlyClass::class, fn ($proxy) => $proxy->__construct(123));
@@ -296,7 +320,7 @@ class LegacyLazyGhostTraitTest extends TestCase
         $this->assertSame(3, $object->public);
     }
 
-    #[RequiresPhp('8.4')]
+    #[RequiresPhp('>=8.4')]
     public function testPropertyHooks()
     {
         $initialized = false;
@@ -319,7 +343,7 @@ class LegacyLazyGhostTraitTest extends TestCase
         $this->assertSame(345, $object->backed);
     }
 
-    #[RequiresPhp('8.4')]
+    #[RequiresPhp('>=8.4')]
     public function testPropertyHooksWithDefaultValue()
     {
         $initialized = false;
@@ -345,7 +369,7 @@ class LegacyLazyGhostTraitTest extends TestCase
         $this->assertTrue($object->backedBoolWithDefault);
     }
 
-    #[RequiresPhp('8.4')]
+    #[RequiresPhp('>=8.4')]
     public function testAsymmetricVisibility()
     {
         $object = $this->createLazyGhost(AsymmetricVisibility::class, function ($instance) {
